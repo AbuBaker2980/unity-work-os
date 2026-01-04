@@ -2,12 +2,12 @@
 import {
     collection, query, where, orderBy, onSnapshot, addDoc, serverTimestamp, limit
 } from "firebase/firestore";
-import { MessageSquare, Send, Loader, Paperclip, X, Film, File, Download } from "lucide-react";
+import { MessageSquare, Send, Loader, Paperclip, X, Film, File, Download, UploadCloud } from "lucide-react";
 import { db } from "../firebase/config";
 import { formatTime } from "../utils/dateUtils";
 import toast from 'react-hot-toast';
 
-// --- ✅ CONFIGURATION ---
+// --- CONFIGURATION ---
 const CLOUD_NAME = "dfnetnyzf";
 const UPLOAD_PRESET = "unity-app";
 
@@ -20,11 +20,16 @@ const ProjectChatArea = ({ project, currentUser }) => {
     // --- ATTACHMENT STATE ---
     const [selectedFile, setSelectedFile] = useState(null);
     const [filePreview, setFilePreview] = useState(null);
-    const [fileType, setFileType] = useState(null); // 'image', 'video', 'raw'
+    const [fileType, setFileType] = useState(null);
 
     const [sending, setSending] = useState(false);
+
+    // DRAG STATE
+    const [isDragging, setIsDragging] = useState(false);
+
     const messagesEndRef = useRef(null);
     const fileInputRef = useRef(null);
+    const dragCounter = useRef(0); // Anti-flicker ref
 
     // --- FETCH MESSAGES ---
     useEffect(() => {
@@ -91,7 +96,42 @@ const ProjectChatArea = ({ project, currentUser }) => {
         if (fileInputRef.current) fileInputRef.current.value = "";
     };
 
-    // --- UPLOAD TO CLOUDINARY (AUTO) ---
+    // --- DRAG & DROP HANDLERS (FIXED) ---
+    const handleDragEnter = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dragCounter.current += 1;
+        if (e.dataTransfer.items && e.dataTransfer.items.length > 0) {
+            setIsDragging(true);
+        }
+    };
+
+    const handleDragLeave = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dragCounter.current -= 1;
+        if (dragCounter.current === 0) {
+            setIsDragging(false);
+        }
+    };
+
+    const handleDragOver = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+    };
+
+    const handleDrop = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDragging(false);
+        dragCounter.current = 0;
+        const files = e.dataTransfer.files;
+        if (files && files.length > 0) {
+            processFile(files[0]);
+        }
+    };
+
+    // --- UPLOAD TO CLOUDINARY ---
     const uploadToCloudinary = async (file) => {
         const formData = new FormData();
         formData.append("file", file);
@@ -181,7 +221,23 @@ const ProjectChatArea = ({ project, currentUser }) => {
     };
 
     return (
-        <div className="flex flex-col h-[500px] bg-[#0a0a0a] border border-white/10 rounded-2xl overflow-hidden relative">
+        <div
+            className="flex flex-col h-[500px] bg-[#0a0a0a] border border-white/10 rounded-2xl overflow-hidden relative"
+            onDragEnter={handleDragEnter}
+            onDragLeave={handleDragLeave}
+            onDragOver={handleDragOver}
+            onDrop={handleDrop}
+        >
+            {/* DRAG OVERLAY - Fixed with pointer-events-none */}
+            {isDragging && (
+                <div className="absolute inset-0 z-50 bg-blue-600/20 backdrop-blur-sm border-2 border-dashed border-blue-500 flex flex-col items-center justify-center animate-in fade-in duration-200 pointer-events-none">
+                    <div className="bg-[#0f0f12] p-4 rounded-xl shadow-2xl flex flex-col items-center animate-bounce">
+                        <UploadCloud size={32} className="text-blue-500 mb-2" />
+                        <h3 className="text-lg font-bold text-white">Drop to Upload</h3>
+                    </div>
+                </div>
+            )}
+
             <div className="p-4 border-b border-white/5 bg-[#151518] flex justify-between items-center">
                 <div className="flex items-center gap-2">
                     <MessageSquare size={16} className="text-blue-500" />
@@ -244,7 +300,7 @@ const ProjectChatArea = ({ project, currentUser }) => {
                         value={newMessage}
                         onChange={e => setNewMessage(e.target.value)}
                         onPaste={handlePaste}
-                        placeholder="Discuss this project..."
+                        placeholder="Discuss this project... (Drop File)"
                         className="flex-1 bg-[#0a0a0a] border border-white/10 rounded-lg px-3 text-xs text-white focus:border-blue-500 outline-none"
                     />
                     <button type="submit" disabled={sending || (!newMessage.trim() && !selectedFile)} className="bg-blue-600 hover:bg-blue-500 text-white p-2 rounded-lg disabled:opacity-50">

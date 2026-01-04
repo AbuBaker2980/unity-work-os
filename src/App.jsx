@@ -33,6 +33,9 @@ const MESSAGES_COLLECTION_PATH = ['artifacts', APP_ID, 'public', 'data', 'messag
 const PROJECT_MESSAGES_COLLECTION_PATH = ['artifacts', APP_ID, 'public', 'data', 'project_messages'];
 const STORAGE_KEYS = { LAST_READ_CHAT: "workos_last_read_chat" };
 
+// ✅ AAPKA GITHUB DOWNLOAD LINK YAHAN HAI
+const DOWNLOAD_LINK = "https://github.com/AbuBaker2980/unity-work-os/releases/download/v1.0.2/Unity.Work.OS.Setup.1.0.2.exe";
+
 // --- DASHBOARD COMPONENT ---
 const Dashboard = ({
     user, handleLogout, onUpdateUser,
@@ -218,7 +221,6 @@ const Dashboard = ({
         if (p.platform === 'iOS') { Icon = Smartphone; colorClass = "text-gray-400"; }
         if (p.platform === 'Windows' || p.platform === 'PC') { Icon = Monitor; colorClass = "text-gray-400"; }
 
-        // --- CHECK IF THIS PROJECT HAS UNREAD MESSAGES ---
         const hasUnread = unreadProjectIds.has(p.id);
 
         return (
@@ -235,7 +237,6 @@ const Dashboard = ({
                     <span className={`truncate text-xs ${hasUnread ? "font-bold text-white" : ""}`}>{p.name}</span>
                 </div>
 
-                {/* --- RED DOT FOR PROJECT --- */}
                 {hasUnread && <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse shadow-[0_0_5px_red] mr-2"></div>}
 
                 {checkPermission('DELETE_CONTENT') && (
@@ -261,7 +262,6 @@ const Dashboard = ({
             <div className="relative z-10 flex items-center w-full">
                 <div className="relative">
                     <Icon size={20} className={`transition-all duration-300 ${active ? 'text-blue-400 scale-110 drop-shadow-[0_0_8px_rgba(59,130,246,0.8)]' : locked ? 'text-gray-600' : 'group-hover:text-white'}`} />
-                    {/* --- RED DOT FOR SIDEBAR --- */}
                     {alert && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-red-500 border-2 border-[#0f0f12] rounded-full animate-pulse shadow-[0_0_10px_red]"></span>}
                 </div>
                 <span className={`ml-4 font-medium text-sm tracking-wide transition-all duration-300 whitespace-nowrap ${isOpen ? 'opacity-100 translate-x-0' : 'opacity-0 -translate-x-4 w-0 overflow-hidden'}`}>
@@ -297,7 +297,6 @@ const Dashboard = ({
                     <SidebarBtn icon={Layout} label="Dashboard" active={view === 'dashboard'} onClick={() => handleNavigate('dashboard')} isOpen={isSidebarOpen || isMobileMenuOpen} />
                     <SidebarBtn icon={CheckSquare} label="Daily Tasks" active={view === 'tasks'} onClick={() => handleNavigate('tasks')} isOpen={isSidebarOpen || isMobileMenuOpen} />
 
-                    {/* --- PROJECTS BUTTON WITH RED DOT SUPPORT --- */}
                     {(checkPermission('VIEW_PROJECTS') || ['Designer', '3D Modeler'].includes(user.role)) && (
                         <SidebarBtn
                             icon={Briefcase}
@@ -306,7 +305,7 @@ const Dashboard = ({
                             onClick={() => handleNavigate('projects')}
                             isOpen={isSidebarOpen || isMobileMenuOpen}
                             locked={!checkPermission('VIEW_PROJECTS')}
-                            alert={unreadProjectIds.size > 0} // <--- Shows dot if ANY project has unread
+                            alert={unreadProjectIds.size > 0}
                         />
                     )}
 
@@ -458,7 +457,6 @@ const Dashboard = ({
                                                 userName={user.name}
                                                 user={user}
                                                 logActivity={logActivity}
-                                                // --- PASSED NEW PROPS FOR UNREAD BADGE ---
                                                 hasUnreadDiscussion={unreadProjectIds.has(selectedProjectId)}
                                                 onMarkDiscussionRead={() => markProjectRead(selectedProjectId)}
                                             />
@@ -628,16 +626,7 @@ export default function AppWrapper() {
                         addInAppNotification(`${project.name}: ${msg.senderName} sent a message`);
 
                         // --- SET PROJECT AS UNREAD IN APP STATE ---
-                        // We use a custom event or callback if possible, but here we update a local listener in Dashboard component via props?
-                        // Actually, Dashboard is a child. We need to pass a setter down or use context.
-                        // SIMPLER FIX: Let Dashboard subscribe to this logic itself or move logic up.
-                        // Since Dashboard is already mounted inside AppWrapper, we should move this listener INSIDE Dashboard component or pass setter.
-                        // However, to avoid refactoring huge blocks, we let Dashboard handle its own "unread" state via the props we just added?
-                        // WAIT: The Dashboard component has its OWN state for `unreadProjectIds`. We need to move this listener inside Dashboard component 
-                        // OR pass `setUnreadProjectIds` down. 
-
-                        // FIX: I moved the listener logic INTO Dashboard component in the code above (lines 200+). 
-                        // So the `AppWrapper` listener is just for desktop notifications. The `Dashboard` listener updates the Red Dot.
+                        setUnreadProjectIds(prev => new Set(prev).add(project.id));
                     }
                 }
             }
@@ -666,6 +655,36 @@ export default function AppWrapper() {
 
     if (authLoading) return <div className="h-screen bg-[#0a0a0a] flex items-center justify-center text-gray-500 font-mono text-sm tracking-wider">INITIALIZING SYSTEM...</div>;
 
+    // --- 🛑 DOWNLOAD PAGE LOGIC 🛑 ---
+    // Agar Electron nahi hai, toh Download page dikhao
+    const isElectron = navigator.userAgent.toLowerCase().includes('electron');
+
+    if (!isElectron) {
+        return (
+            <div className="h-screen bg-[#050505] flex flex-col items-center justify-center text-center p-4">
+                <div className="w-20 h-20 bg-gradient-to-br from-blue-600 to-purple-600 rounded-3xl flex items-center justify-center shadow-[0_0_40px_rgba(37,99,235,0.3)] mb-8 animate-pulse">
+                    <Box className="w-10 h-10 text-white" />
+                </div>
+                <h1 className="text-4xl md:text-5xl font-bold text-white mb-4 tracking-tight">
+                    Unity Work OS
+                </h1>
+                <p className="text-gray-400 text-lg mb-10 max-w-md leading-relaxed">
+                    The ultimate workspace for developers. Manage projects, tasks, and teams in one secure vault.
+                </p>
+                <div className="flex flex-col gap-4 w-full max-w-xs">
+                    <a
+                        href={DOWNLOAD_LINK}
+                        className="flex items-center justify-center gap-3 w-full py-4 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl transition-all shadow-lg hover:shadow-blue-500/25 hover:scale-105"
+                    >
+                        <Monitor size={20} /> Download for Windows
+                    </a>
+                    <p className="text-xs text-gray-600 mt-2">v1.0.2 • Windows 10/11 • 64-bit</p>
+                </div>
+            </div>
+        );
+    }
+
+    // --- AGAR ELECTRON HAI, TO APP DIKHAO ---
     if (!user) return <AuthView />;
     if (!user.teamId) return <OnboardingView user={user} />;
 

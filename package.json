@@ -1,10 +1,14 @@
 {
   "name": "unity-work-os",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.0.2",
   "type": "module",
   "main": "electron/main.cjs",
   "homepage": "./",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/AbuBaker2980/unity-work-os.git"
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -15,6 +19,9 @@
   "build": {
     "appId": "com.unity.workos",
     "productName": "Unity Work OS",
+    "publish": [
+      "github"
+    ],
     "directories": {
       "output": "release"
     },
@@ -32,10 +39,15 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
+      "createStartMenuShortcut": true,
+
+      "installerIcon": "public/icon.ico",
+      "uninstallerIcon": "public/icon.ico",
+      "deleteAppDataOnUninstall": true
     }
   },
   "dependencies": {
+    "electron-updater": "^6.1.7",
     "firebase": "^10.7.1",
     "lucide-react": "^0.303.0",
     "react": "^18.2.0",
@@ -47,6 +59,7 @@
     "@types/react": "^18.2.43",
     "@types/react-dom": "^18.2.17",
     "@vitejs/plugin-react": "^4.2.1",
+    "autoprefixer": "^10.4.23",
     "concurrently": "^8.2.2",
     "cross-env": "^7.0.3",
     "electron": "^28.1.0",
@@ -55,6 +68,8 @@
     "eslint-plugin-react": "^7.33.2",
     "eslint-plugin-react-hooks": "^4.6.0",
     "eslint-plugin-react-refresh": "^0.4.5",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^3.4.17",
     "vite": "^5.0.8",
     "wait-on": "^7.2.0"
   }
