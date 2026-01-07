@@ -1,27 +1,48 @@
-// Simple sound effects using hosted files or base64
-// You can replace these URLs with your own hosted mp3 files later.
+﻿// ✅ Professional Web Audio API (No Internet/File Needed)
+export const playSound = (type = 'notification') => {
+    try {
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContext) return;
 
-export const playSound = (type) => {
-    let audio = new Audio();
+        const ctx = new AudioContext();
+        const oscillator = ctx.createOscillator();
+        const gainNode = ctx.createGain();
 
-    switch (type) {
-        case 'success':
-            // Soft Ding
-            audio.src = 'https://assets.mixkit.co/active_storage/sfx/2578/2578-preview.mp3';
-            audio.volume = 0.5;
-            break;
-        case 'notification':
-            // Pop Sound
-            audio.src = 'https://assets.mixkit.co/active_storage/sfx/2346/2346-preview.mp3';
-            audio.volume = 0.4;
-            break;
-        case 'delete':
-            // Crumple/Trash
-            audio.src = 'https://assets.mixkit.co/active_storage/sfx/2572/2572-preview.mp3';
-            break;
-        default:
-            return;
+        oscillator.connect(gainNode);
+        gainNode.connect(ctx.destination);
+
+        const now = ctx.currentTime;
+
+        switch (type) {
+            case 'success': // ✨ Ding!
+                oscillator.type = 'sine';
+                oscillator.frequency.setValueAtTime(500, now);
+                oscillator.frequency.exponentialRampToValueAtTime(1000, now + 0.1);
+                gainNode.gain.setValueAtTime(0.1, now);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
+                oscillator.start(now);
+                oscillator.stop(now + 0.5);
+                break;
+            case 'notification': // 🔔 Pop!
+                oscillator.type = 'sine';
+                oscillator.frequency.setValueAtTime(400, now);
+                gainNode.gain.setValueAtTime(0.1, now);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+                oscillator.start(now);
+                oscillator.stop(now + 0.3);
+                break;
+            case 'delete': // 🗑️ Thud
+                oscillator.type = 'triangle';
+                oscillator.frequency.setValueAtTime(150, now);
+                oscillator.frequency.exponentialRampToValueAtTime(50, now + 0.2);
+                gainNode.gain.setValueAtTime(0.1, now);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+                oscillator.start(now);
+                oscillator.stop(now + 0.2);
+                break;
+            default: return;
+        }
+    } catch (error) {
+        console.warn("Audio play failed:", error);
     }
-
-    audio.play().catch(e => console.log("Audio play failed (user interaction needed first)", e));
 };

@@ -1,7 +1,8 @@
 ﻿import { useState, useEffect } from "react";
+import { Link } from "react-router-dom"; // 👈 ✅ 1. Import Link
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, sendPasswordResetEmail, sendEmailVerification, signOut, reload } from "firebase/auth";
 import { doc, setDoc, serverTimestamp } from "firebase/firestore";
-import { Box, Mail, Lock, User, ArrowRight, AlertTriangle, CheckCircle, RefreshCw, X } from "lucide-react";
+import { Box, Mail, Lock, User, ArrowRight, AlertTriangle, CheckCircle, RefreshCw, X, Book } from "lucide-react"; // 👈 ✅ 2. Import Book Icon
 import { auth, db } from "../firebase/config";
 
 const AuthView = () => {
@@ -127,6 +128,14 @@ const AuthView = () => {
                         <button onClick={() => { setIsLogin(!isLogin); setMessage(""); setError(""); }} className="hover:text-white transition-colors">{isLogin ? "Create an account" : "Log In instead"}</button>
                     </>}
                 </div>
+
+                {/* 👇 ✅ 3. NEW DOCS LINK ADDED HERE */}
+                <div className="mt-6 text-center">
+                    <Link to="/docs" className="text-xs text-gray-600 hover:text-blue-400 flex items-center justify-center gap-2 transition-colors">
+                        <Book size={14} /> Read Documentation
+                    </Link>
+                </div>
+
             </div>
         </div>
     );

@@ -1,4 +1,5 @@
 ﻿import React, { useState, useEffect, useMemo } from 'react';
+import { Link } from 'react-router-dom'; // 👈 ✅ 1. Import Link
 import {
     CheckSquare, Users, MessageSquare, ArrowUpRight, Calendar,
     Activity, Code, Briefcase, Target, Clock, AlertCircle, CheckCircle,
@@ -26,7 +27,6 @@ const DashboardView = ({
     const isTeamLead = ['TL', 'Team Lead', 'Manager'].includes(user?.role);
 
     // --- PERMISSION CHECK FOR PROJECTS CARD ---
-    // ✅ UPDATE: Added 'Designer' and '3D Modeler' so they can see the card
     const canViewProjects = [
         'TL', 'Team Lead', 'Manager',
         'Developer', 'ASO', 'QA',
@@ -361,9 +361,16 @@ const DashboardView = ({
 
             {/* FIXED FOOTER */}
             <div className="py-4 border-t border-white/5 bg-[#0a0a0a] z-10 shrink-0 flex flex-col md:flex-row justify-between items-center px-8 gap-4">
-                <div className="text-[10px] text-gray-600 font-mono flex items-center gap-2">
-                    <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.8)]"></div>
-                    <span>UNITY CORE v3.1</span>
+                <div className="flex items-center gap-4">
+                    <div className="text-[10px] text-gray-600 font-mono flex items-center gap-2">
+                        <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.8)]"></div>
+                        <span>UNITY CORE v1.0.3</span>
+                    </div>
+                    {/* 👇 ✅ ADDED DOCS LINK HERE */}
+                    <span className="text-gray-800">|</span>
+                    <Link to="/docs" className="text-[10px] text-gray-500 hover:text-blue-400 flex items-center gap-1.5 transition-colors group">
+                        <Book size={12} className="group-hover:scale-110 transition-transform" /> Docs
+                    </Link>
                 </div>
 
                 <div className="flex flex-col md:flex-row items-center gap-1 md:gap-4">

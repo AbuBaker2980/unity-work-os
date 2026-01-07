@@ -1,7 +1,7 @@
 {
   "name": "unity-work-os",
   "private": true,
-  "version": "1.0.2",
+  "version": "1.0.3",
   "type": "module",
   "main": "electron/main.cjs",
   "homepage": "./",
@@ -40,7 +40,6 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-
       "installerIcon": "public/icon.ico",
       "uninstallerIcon": "public/icon.ico",
       "deleteAppDataOnUninstall": true
@@ -53,7 +52,8 @@
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-easy-crop": "^5.0.4",
-    "react-hot-toast": "^2.4.1"
+    "react-hot-toast": "^2.4.1",
+    "react-router-dom": "^7.11.0"
   },
   "devDependencies": {
     "@types/react": "^18.2.43",
