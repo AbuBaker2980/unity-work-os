@@ -3,7 +3,7 @@ import {
     Box, Settings, DollarSign, FileJson, ShoppingBag, Check, Cloud,
     Plus, Trash2, Upload, Key, History, X, Link as LinkIcon, ExternalLink,
     Download, Copy, Save, AlertCircle, Rocket, ChevronDown, ChevronUp, Package, GitCommit, Lock,
-    MessageSquare, Users, ShieldCheck
+    MessageSquare, Users, ShieldCheck, CreditCard, Tag
 } from 'lucide-react';
 import InputField from "../components/InputField";
 import ProjectChatArea from "../components/ProjectChatArea";
@@ -48,6 +48,7 @@ const ProjectVault = ({ project, folders, onUpdate, onClose, userRole, userName,
     useEffect(() => {
         let initialData = { ...project };
         if (!initialData.adsVault) initialData.adsVault = [];
+        if (!initialData.inAppProducts) initialData.inAppProducts = [];
         if (!initialData.firebase) initialData.firebase = { files: [] };
         if (!initialData.keystore) initialData.keystore = { files: [] };
         if (!initialData.store) initialData.store = { versionHistory: [] };
@@ -107,6 +108,7 @@ const ProjectVault = ({ project, folders, onUpdate, onClose, userRole, userName,
             const sections = Array.from(modifiedSet).map(s => {
                 if (s === 'discussion_access') return 'Discussion Access';
                 if (s === 'ads') return 'Ad Networks';
+                if (s === 'inapp') return 'In-App Products';
                 if (s === 'firebase') return 'Firebase';
                 if (s === 'keystore') return 'Keystore';
                 if (s === 'store') return 'Release Settings';
@@ -210,6 +212,7 @@ const ProjectVault = ({ project, folders, onUpdate, onClose, userRole, userName,
         }
     };
 
+    // --- ADS & IN-APP LOGIC ---
     const toggleNetwork = (id) => { setExpandedNetworkId(expandedNetworkId === id ? null : id); };
     const addNetwork = () => { if (isQA || isCreative) return; markChange('ads'); const newId = crypto.randomUUID(); setFormData(prev => ({ ...prev, adsVault: [...(prev.adsVault || []), { id: newId, networkName: 'New Network', adUnits: [] }] })); setExpandedNetworkId(newId); };
     const updateNetworkName = (netId, name) => { if (isQA || isCreative) return; markChange('ads'); setFormData(prev => ({ ...prev, adsVault: prev.adsVault.map(n => n.id === netId ? { ...n, networkName: name } : n) })); }
@@ -218,7 +221,41 @@ const ProjectVault = ({ project, folders, onUpdate, onClose, userRole, userName,
     const updateAdUnit = (netId, unitId, field, value) => { if (isQA || isCreative) return; markChange('ads'); setFormData(prev => ({ ...prev, adsVault: prev.adsVault.map(n => n.id === netId ? { ...n, adUnits: n.adUnits.map(u => u.id === unitId ? { ...u, [field]: value } : u) } : n) })); }
     const removeAdUnit = (netId, unitId) => { if (isQA || isCreative) return; if (confirm("Delete Key?")) { markChange('ads'); setFormData(prev => ({ ...prev, adsVault: prev.adsVault.map(n => n.id === netId ? { ...n, adUnits: n.adUnits.filter(u => u.id !== unitId) } : n) })); } };
 
-    const copySingleId = (id) => { navigator.clipboard.writeText(id); toast.success("Key copied!"); };
+    // --- IN-APP PRODUCTS HANDLERS ---
+    const addInAppProduct = () => {
+        if (isQA || isCreative) return;
+        markChange('inapp');
+        const newProduct = {
+            id: crypto.randomUUID(),
+            productId: '',
+            name: '',
+            type: 'Non-Consumable',
+            desc: ''
+        };
+        setFormData(prev => ({ ...prev, inAppProducts: [...(prev.inAppProducts || []), newProduct] }));
+    };
+
+    const updateInAppProduct = (prodId, field, value) => {
+        if (isQA || isCreative) return;
+        markChange('inapp');
+        setFormData(prev => ({
+            ...prev,
+            inAppProducts: prev.inAppProducts.map(p => p.id === prodId ? { ...p, [field]: value } : p)
+        }));
+    };
+
+    const removeInAppProduct = (prodId) => {
+        if (isQA || isCreative) return;
+        if (confirm("Delete this product?")) {
+            markChange('inapp');
+            setFormData(prev => ({
+                ...prev,
+                inAppProducts: prev.inAppProducts.filter(p => p.id !== prodId)
+            }));
+        }
+    };
+
+    const copySingleId = (id) => { navigator.clipboard.writeText(id); toast.success("Copied!"); };
     const copyAllIds = () => { const allText = formData.adsVault.map(net => `=== ${net.networkName} ===\n` + net.adUnits.map(u => `${u.name} (${u.type}): ${u.unitId}`).join('\n')).join('\n\n'); navigator.clipboard.writeText(allText); toast.success("All Ad IDs copied!"); };
     const copyNetworkIds = (network) => { const text = network.adUnits.map(u => `${u.name} (${u.type}): ${u.unitId}`).join('\n'); navigator.clipboard.writeText(text); toast.success(`Copied IDs for ${network.networkName}`); };
 
@@ -288,6 +325,7 @@ const ProjectVault = ({ project, folders, onUpdate, onClose, userRole, userName,
                     { id: 'general', icon: Settings, label: 'General' },
                     { id: 'discussion', icon: MessageSquare, label: 'Discussion' },
                     { id: 'store', icon: ShoppingBag, label: 'Release & Store' },
+                    { id: 'inapp', icon: CreditCard, label: 'In-App Products' },
                     { id: 'ads', icon: DollarSign, label: 'Ad Network' },
                     { id: 'firebase', icon: FileJson, label: 'Firebase' },
                     { id: 'keystore', icon: Key, label: 'Keystore' }
@@ -298,7 +336,16 @@ const ProjectVault = ({ project, folders, onUpdate, onClose, userRole, userName,
                     } else if (tab.id === 'store') {
                         if (isCreative) isLocked = true;
                     } else {
+                        // Default locking for QA & Creative roles
                         if (isQA || isCreative) isLocked = true;
+
+                        // Override: Ads are viewable (but not editable)
+                        if (tab.id === 'ads') isLocked = false;
+                    }
+
+                    // Special Override: QA/Creative can VIEW but not edit ads
+                    if ((isQA || isCreative) && tab.id === 'ads') {
+                        isLocked = false;
                     }
 
                     return (
@@ -311,7 +358,6 @@ const ProjectVault = ({ project, folders, onUpdate, onClose, userRole, userName,
                                 }
                                 if (hasUnsavedChanges && !isQA && !isCreative) performSave(formData, modifiedSectionsRef.current, true);
                                 setActiveTab(tab.id);
-                                // Mark read if clicking Discussion
                                 if (tab.id === 'discussion' && onMarkDiscussionRead) onMarkDiscussionRead();
                             }}
                             className={`
@@ -321,7 +367,6 @@ const ProjectVault = ({ project, folders, onUpdate, onClose, userRole, userName,
                             `}
                         >
                             <tab.icon size={14} /> {tab.label}
-                            {/* --- RED DOT FOR DISCUSSION TAB --- */}
                             {tab.id === 'discussion' && hasUnreadDiscussion && (
                                 <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-red-500 rounded-full animate-pulse shadow-md border-2 border-[#0f0f12]"></span>
                             )}
@@ -359,13 +404,7 @@ const ProjectVault = ({ project, folders, onUpdate, onClose, userRole, userName,
                                                 <button
                                                     key={member.id}
                                                     onClick={() => toggleMemberAccess(member.id)}
-                                                    className={`
-                                                        flex items-center gap-3 p-3 rounded-xl border text-left transition-all
-                                                        ${isSelected
-                                                            ? 'bg-blue-600/10 border-blue-500/50 text-white'
-                                                            : 'bg-[#0a0a0a] border-white/10 text-gray-500 hover:border-white/20'
-                                                        }
-                                                    `}
+                                                    className={`flex items-center gap-3 p-3 rounded-xl border text-left transition-all ${isSelected ? 'bg-blue-600/10 border-blue-500/50 text-white' : 'bg-[#0a0a0a] border-white/10 text-gray-500 hover:border-white/20'}`}
                                                 >
                                                     <div className={`w-4 h-4 rounded border flex items-center justify-center ${isSelected ? 'bg-blue-500 border-blue-500' : 'border-gray-600'}`}>
                                                         {isSelected && <Check size={10} className="text-white" />}
@@ -383,6 +422,112 @@ const ProjectVault = ({ project, folders, onUpdate, onClose, userRole, userName,
                                 </div>
                             )}
                             <ProjectChatArea project={project} currentUser={user} />
+                        </div>
+                    )}
+
+                    {activeTab === 'inapp' && (
+                        <div className="animate-fade-in">
+                            <div className="flex justify-between items-center mb-6">
+                                <div>
+                                    <h3 className="text-lg font-bold text-white flex items-center gap-2"><CreditCard size={18} className="text-pink-500" /> In-App Products</h3>
+                                    <p className="text-xs text-gray-500">Manage consumable, non-consumable and subscription IDs.</p>
+                                </div>
+                                <button onClick={addInAppProduct} className="bg-pink-600/20 text-pink-400 border border-pink-500/30 px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 hover:bg-pink-600/30 transition-colors">
+                                    <Plus size={16} /> Add Product
+                                </button>
+                            </div>
+
+                            <div className="space-y-3">
+                                {formData.inAppProducts?.length === 0 && (
+                                    <div className="bg-[#151518] border border-white/5 rounded-2xl p-8 text-center">
+                                        <ShoppingBag size={32} className="text-gray-600 mx-auto mb-3" />
+                                        <p className="text-gray-500 text-sm">No products added yet.</p>
+                                    </div>
+                                )}
+
+                                {formData.inAppProducts?.map((product) => (
+                                    <div key={product.id} className="bg-[#151518] border border-white/5 rounded-xl p-4 hover:border-pink-500/30 transition-all group">
+                                        <div className="grid grid-cols-12 gap-4 items-center">
+                                            {/* Product ID (Main Key) */}
+                                            <div className="col-span-3 relative">
+                                                <label className="text-[9px] text-gray-500 uppercase font-bold mb-1 block">Product ID</label>
+                                                <input
+                                                    className="w-full bg-[#0a0a0a] border border-white/10 rounded-lg p-2 text-xs text-yellow-500 font-mono pr-8 focus:border-pink-500/50 outline-none"
+                                                    value={product.productId}
+                                                    onChange={(e) => updateInAppProduct(product.id, 'productId', e.target.value)}
+                                                    placeholder="remove_ads"
+                                                />
+                                                <button onClick={() => copySingleId(product.productId)} className="absolute right-1 bottom-1 text-gray-600 hover:text-white p-1 rounded hover:bg-white/10" title="Copy ID">
+                                                    <Copy size={12} />
+                                                </button>
+                                            </div>
+
+                                            {/* Name */}
+                                            <div className="col-span-3">
+                                                <label className="text-[9px] text-gray-500 uppercase font-bold mb-1 block">Display Name</label>
+                                                <input
+                                                    className="w-full bg-[#0a0a0a] border border-white/10 rounded-lg p-2 text-xs text-white focus:border-pink-500/50 outline-none"
+                                                    value={product.name}
+                                                    onChange={(e) => updateInAppProduct(product.id, 'name', e.target.value)}
+                                                    placeholder="Remove Ads"
+                                                />
+                                            </div>
+
+                                            {/* Type Dropdown */}
+                                            <div className="col-span-3">
+                                                <label className="text-[9px] text-gray-500 uppercase font-bold mb-1 block">Type</label>
+                                                <select
+                                                    className="w-full bg-[#0a0a0a] border border-white/10 rounded-lg p-2 text-xs text-gray-300 focus:border-pink-500/50 outline-none"
+                                                    value={product.type}
+                                                    onChange={(e) => updateInAppProduct(product.id, 'type', e.target.value)}
+                                                >
+                                                    <option>Consumable</option>
+                                                    <option>Non-Consumable</option>
+                                                    <option>Subscription</option>
+                                                </select>
+                                            </div>
+
+                                            {/* Delete Button */}
+                                            <div className="col-span-3 flex items-end justify-end gap-2">
+                                                {/* Description Field (Optional, taking remaining space visually or stacked) */}
+                                                <div className="flex-1">
+                                                    <label className="text-[9px] text-gray-500 uppercase font-bold mb-1 block">Note / Price</label>
+                                                    <input
+                                                        className="w-full bg-[#0a0a0a] border border-white/10 rounded-lg p-2 text-xs text-gray-400 focus:border-pink-500/50 outline-none"
+                                                        value={product.desc}
+                                                        onChange={(e) => updateInAppProduct(product.id, 'desc', e.target.value)}
+                                                        placeholder="e.g. $2.99"
+                                                    />
+                                                </div>
+                                                <button onClick={() => removeInAppProduct(product.id)} className="text-gray-600 hover:text-red-400 p-2 rounded-lg bg-white/5 hover:bg-white/10 h-fit mt-5">
+                                                    <Trash2 size={16} />
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* EXISTING ADS TAB */}
+                    {activeTab === 'ads' && (
+                        <div className="animate-fade-in">
+                            <div className="flex justify-between items-center mb-6"><h3 className="text-lg font-bold text-white">Ad Networks</h3><div className="flex gap-2"><button onClick={copyAllIds} className="bg-white/5 hover:bg-white/10 text-gray-300 border border-white/5 px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2"><Copy size={16} /> Copy All</button>{!isQA && !isCreative && <button onClick={addNetwork} className="bg-blue-600/20 text-blue-400 border border-blue-500/30 px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 hover:bg-blue-600/30"><Plus size={16} /> Add Network</button>}</div></div>
+                            <div className="space-y-4">
+                                {formData.adsVault?.map(net => {
+                                    const isExpanded = expandedNetworkId === net.id;
+                                    return (
+                                        <div key={net.id} className={`bg-[#151518] border ${isExpanded ? 'border-blue-500/30' : 'border-white/5'} rounded-2xl overflow-hidden transition-all duration-300`}>
+                                            <div className="bg-white/5 p-4 flex justify-between items-center cursor-pointer hover:bg-white/10 transition-colors" onClick={() => toggleNetwork(net.id)}>
+                                                <div className="flex items-center gap-3"><div className={`p-1.5 rounded-full bg-white/10 text-gray-400 transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`}><ChevronDown size={16} /></div><div><input className="bg-transparent text-white font-bold text-sm outline-none placeholder-gray-600 w-48 cursor-text" value={net.networkName} onChange={(e) => updateNetworkName(net.id, e.target.value)} onClick={(e) => e.stopPropagation()} placeholder="Network Name" readOnly={isQA || isCreative} /><p className="text-[10px] text-gray-500">{net.adUnits.length} Ad Units Configured</p></div></div>
+                                                <div className="flex gap-1" onClick={(e) => e.stopPropagation()}><button onClick={() => copyNetworkIds(net)} className="text-gray-500 hover:text-blue-400 p-2 rounded-lg hover:bg-white/5" title="Copy IDs"><Copy size={16} /></button>{!isQA && !isCreative && <button onClick={() => removeNetwork(net.id)} className="text-gray-500 hover:text-red-400 p-2 rounded-lg hover:bg-white/5"><Trash2 size={16} /></button>}</div>
+                                            </div>
+                                            {isExpanded && (<div className="p-4 space-y-3 bg-[#0a0a0a]/30 border-t border-white/5">{net.adUnits.map(unit => (<div key={unit.id} className="grid grid-cols-12 gap-2 items-center group"><div className="col-span-3"><input className="w-full bg-[#0a0a0a] border border-white/10 rounded-lg p-2 text-xs text-gray-300 focus:border-blue-500/50 outline-none" value={unit.name} onChange={(e) => updateAdUnit(net.id, unit.id, 'name', e.target.value)} placeholder="Placement" readOnly={isQA || isCreative} /></div><div className="col-span-3"><select className="w-full bg-[#0a0a0a] border border-white/10 rounded-lg p-2 text-xs text-gray-300 focus:border-blue-500/50 outline-none" value={unit.type} onChange={(e) => updateAdUnit(net.id, unit.id, 'type', e.target.value)} disabled={isQA || isCreative}><option>Banner</option><option>Interstitial</option><option>Rewarded</option><option>App Open</option><option>MREC</option><option>SDK Key</option><option>App ID</option><option>Other</option></select></div><div className="col-span-5 relative"><input className="w-full bg-[#0a0a0a] border border-white/10 rounded-lg p-2 text-xs text-yellow-500 font-mono pr-8 focus:border-blue-500/50 outline-none" value={unit.unitId} onChange={(e) => updateAdUnit(net.id, unit.id, 'unitId', e.target.value)} placeholder="ID" readOnly={isQA || isCreative} /><button onClick={() => copySingleId(unit.unitId)} className="absolute right-1 top-1 text-gray-600 hover:text-white p-1 rounded hover:bg-white/10" title="Copy this key"><Copy size={12} /></button></div><div className="col-span-1 text-right">{!isQA && !isCreative && <button onClick={() => removeAdUnit(net.id, unit.id)} className="text-gray-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 size={14} /></button>}</div></div>))}{!isQA && !isCreative && <button onClick={() => addAdUnit(net.id)} className="text-xs text-blue-500 font-bold mt-2 hover:underline flex items-center gap-1"><Plus size={12} /> Add Unit</button>}</div>)}
+                                        </div>
+                                    );
+                                })}
+                            </div>
                         </div>
                     )}
 
@@ -446,26 +591,6 @@ const ProjectVault = ({ project, folders, onUpdate, onClose, userRole, userName,
                                     ))}
                                     {(!formData.store.versionHistory || formData.store.versionHistory.length === 0) && <p className="text-xs text-gray-600 pl-8">No deployment history found.</p>}
                                 </div>
-                            </div>
-                        </div>
-                    )}
-
-                    {activeTab === 'ads' && !isQA && !isCreative && (
-                        <div className="animate-fade-in">
-                            <div className="flex justify-between items-center mb-6"><h3 className="text-lg font-bold text-white">Ad Networks</h3><div className="flex gap-2"><button onClick={copyAllIds} className="bg-white/5 hover:bg-white/10 text-gray-300 border border-white/5 px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2"><Copy size={16} /> Copy All</button><button onClick={addNetwork} className="bg-blue-600/20 text-blue-400 border border-blue-500/30 px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 hover:bg-blue-600/30"><Plus size={16} /> Add Network</button></div></div>
-                            <div className="space-y-4">
-                                {formData.adsVault?.map(net => {
-                                    const isExpanded = expandedNetworkId === net.id;
-                                    return (
-                                        <div key={net.id} className={`bg-[#151518] border ${isExpanded ? 'border-blue-500/30' : 'border-white/5'} rounded-2xl overflow-hidden transition-all duration-300`}>
-                                            <div className="bg-white/5 p-4 flex justify-between items-center cursor-pointer hover:bg-white/10 transition-colors" onClick={() => toggleNetwork(net.id)}>
-                                                <div className="flex items-center gap-3"><div className={`p-1.5 rounded-full bg-white/10 text-gray-400 transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`}><ChevronDown size={16} /></div><div><input className="bg-transparent text-white font-bold text-sm outline-none placeholder-gray-600 w-48 cursor-text" value={net.networkName} onChange={(e) => updateNetworkName(net.id, e.target.value)} onClick={(e) => e.stopPropagation()} placeholder="Network Name" /><p className="text-[10px] text-gray-500">{net.adUnits.length} Ad Units Configured</p></div></div>
-                                                <div className="flex gap-1" onClick={(e) => e.stopPropagation()}><button onClick={() => copyNetworkIds(net)} className="text-gray-500 hover:text-blue-400 p-2 rounded-lg hover:bg-white/5" title="Copy IDs"><Copy size={16} /></button><button onClick={() => removeNetwork(net.id)} className="text-gray-500 hover:text-red-400 p-2 rounded-lg hover:bg-white/5"><Trash2 size={16} /></button></div>
-                                            </div>
-                                            {isExpanded && (<div className="p-4 space-y-3 bg-[#0a0a0a]/30 border-t border-white/5">{net.adUnits.map(unit => (<div key={unit.id} className="grid grid-cols-12 gap-2 items-center group"><div className="col-span-3"><input className="w-full bg-[#0a0a0a] border border-white/10 rounded-lg p-2 text-xs text-gray-300 focus:border-blue-500/50 outline-none" value={unit.name} onChange={(e) => updateAdUnit(net.id, unit.id, 'name', e.target.value)} placeholder="Placement" /></div><div className="col-span-3"><select className="w-full bg-[#0a0a0a] border border-white/10 rounded-lg p-2 text-xs text-gray-300 focus:border-blue-500/50 outline-none" value={unit.type} onChange={(e) => updateAdUnit(net.id, unit.id, 'type', e.target.value)}><option>Banner</option><option>Interstitial</option><option>Rewarded</option><option>App Open</option><option>MREC</option><option>SDK Key</option><option>App ID</option><option>Other</option></select></div><div className="col-span-5 relative"><input className="w-full bg-[#0a0a0a] border border-white/10 rounded-lg p-2 text-xs text-yellow-500 font-mono pr-8 focus:border-blue-500/50 outline-none" value={unit.unitId} onChange={(e) => updateAdUnit(net.id, unit.id, 'unitId', e.target.value)} placeholder="ID" /><button onClick={() => copySingleId(unit.unitId)} className="absolute right-1 top-1 text-gray-600 hover:text-white p-1 rounded hover:bg-white/10" title="Copy this key"><Copy size={12} /></button></div><div className="col-span-1 text-right"><button onClick={() => removeAdUnit(net.id, unit.id)} className="text-gray-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 size={14} /></button></div></div>))}<button onClick={() => addAdUnit(net.id)} className="text-xs text-blue-500 font-bold mt-2 hover:underline flex items-center gap-1"><Plus size={12} /> Add Unit</button></div>)}
-                                        </div>
-                                    );
-                                })}
                             </div>
                         </div>
                     )}

@@ -35,7 +35,7 @@ const MESSAGES_COLLECTION_PATH = ['artifacts', APP_ID, 'public', 'data', 'messag
 const PROJECT_MESSAGES_COLLECTION_PATH = ['artifacts', APP_ID, 'public', 'data', 'project_messages'];
 const STORAGE_KEYS = { LAST_READ_CHAT: "workos_last_read_chat" };
 
-const DOWNLOAD_LINK = "https://github.com/AbuBaker2980/unity-work-os/releases/download/v1.0.2/Unity.Work.OS.Setup.1.0.2.exe";
+const DOWNLOAD_LINK = "https://github.com/AbuBaker2980/unity-work-os/releases/download/v1.0.3/Unity.Work.OS.Setup.1.0.3.exe";
 
 // --- DASHBOARD COMPONENT ---
 const Dashboard = ({
@@ -379,7 +379,7 @@ const MainApp = () => {
             const fetchedTasks = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
             if (!isFirstLoad.current) {
                 snapshot.docChanges().forEach((change) => {
-                    const task = change.doc.data(); // FIXED: Variable defined here
+                    const task = change.doc.data();
                     if (change.type === "added" && task.assignedTo === user.uid && task.assignedBy !== user.uid) {
                         const msg = `New Task: ${task.title}`;
                         showDesktopNotification("New Assignment", msg);
@@ -397,7 +397,21 @@ const MainApp = () => {
 
         const startOfDay = new Date(activityDate); startOfDay.setHours(0, 0, 0, 0);
         const endOfDay = new Date(activityDate); endOfDay.setHours(23, 59, 59, 999);
-        const unsubActivities = onSnapshot(query(getCollectionRef('activities'), where('teamId', '==', user.teamId), where('timestamp', '>=', startOfDay), where('timestamp', '<=', endOfDay), orderBy('timestamp', 'desc')), (snapshot) => { const fetched = snapshot.docs.map(d => ({ id: d.id, ...d.data() })); if (!isFirstLoad.current) { snapshot.docChanges().forEach((change) => { if (change.type === "added" && task.assignedTo === user.uid && task.assignedBy !== user.uid) { const act = change.doc.data(); if (act.type?.includes("DELETE") || act.type?.includes("UPLOAD")) { showDesktopNotification("Team Activity", act.text); } } }); } setActivities(fetched); });
+        const unsubActivities = onSnapshot(query(getCollectionRef('activities'), where('teamId', '==', user.teamId), where('timestamp', '>=', startOfDay), where('timestamp', '<=', endOfDay), orderBy('timestamp', 'desc')), (snapshot) => {
+            const fetched = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+            if (!isFirstLoad.current) {
+                snapshot.docChanges().forEach((change) => {
+                    // FIXED: Removed invalid check for task.assignedTo here
+                    if (change.type === "added") {
+                        const act = change.doc.data();
+                        if (act.type?.includes("DELETE") || act.type?.includes("UPLOAD")) {
+                            showDesktopNotification("Team Activity", act.text);
+                        }
+                    }
+                });
+            }
+            setActivities(fetched);
+        });
 
         const msgsRef = collection(db, ...MESSAGES_COLLECTION_PATH);
         const unsubChat = onSnapshot(query(msgsRef, where("teamId", "==", user.teamId), orderBy("createdAt", "desc"), limit(1)), (snapshot) => { if (!isFirstLoad.current && !snapshot.empty) { const msg = snapshot.docs[0].data(); if (msg.senderId !== user.uid) { if (msg.text.includes(`@${user.name}`)) { const notifyText = `${msg.senderName} mentioned you: ${msg.text}`; showDesktopNotification("New Mention", notifyText); addInAppNotification(notifyText); } else { showDesktopNotification(`Message from ${msg.senderName}`, msg.text); } } } });

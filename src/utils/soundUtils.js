@@ -1,10 +1,34 @@
 ﻿// ✅ Professional Web Audio API (No Internet/File Needed)
+// We use a global variable to store the context so we don't create a new one every time.
+let audioCtx = null;
+
 export const playSound = (type = 'notification') => {
     try {
         const AudioContext = window.AudioContext || window.webkitAudioContext;
         if (!AudioContext) return;
 
-        const ctx = new AudioContext();
+        // 1. Singleton: Only create the AudioContext once
+        if (!audioCtx) {
+            audioCtx = new AudioContext();
+        }
+
+        const ctx = audioCtx;
+
+        // 2. Autoplay Policy Fix:
+        // Browsers suspend audio contexts created without user gesture.
+        // We attempt to resume it. If the user hasn't clicked yet, this might still fail silently,
+        // but it prevents the "not allowed to start" crash/spam in many cases.
+        if (ctx.state === 'suspended') {
+            ctx.resume().catch((err) => {
+                // If resume fails (because no user interaction yet), we just return.
+                // This prevents the red console error spam.
+                return;
+            });
+        }
+
+        // If context is still suspended after trying to resume, we can't play sound.
+        if (ctx.state === 'suspended') return;
+
         const oscillator = ctx.createOscillator();
         const gainNode = ctx.createGain();
 
