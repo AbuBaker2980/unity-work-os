@@ -7,7 +7,7 @@ import {
     Edit2, Check, X, ShieldCheck
 } from "lucide-react";
 import { db } from "../firebase/config";
-import ChatArea from "../components/ChatArea";
+import GenericChat from "../components/GenericChat";
 
 const TeamView = ({ currentUser, defaultTab = 'roster' }) => {
     const [activeTab, setActiveTab] = useState(defaultTab);
@@ -147,9 +147,17 @@ const TeamView = ({ currentUser, defaultTab = 'roster' }) => {
                             </div>
                         </div>
 
-                        {/* Chat Area */}
-                        <div className="flex-1 min-h-0">
-                            <ChatArea currentUser={currentUser} teamMembers={members} />
+                        {/* Chat Area - REPLACED */}
+                        <div className="flex-1 min-h-0 min-w-0 h-full overflow-hidden">
+                            <GenericChat
+                                context="team"
+                                collectionPath={['artifacts', 'unity-work-os', 'public', 'data', 'messages']}
+                                queryField="teamId"
+                                queryValue={currentUser.teamId}
+                                currentUser={currentUser}
+                                members={members}
+                                placeholder="Message team..."
+                            />
                         </div>
                     </div>
                 ) : (

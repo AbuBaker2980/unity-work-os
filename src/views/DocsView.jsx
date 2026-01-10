@@ -1,5 +1,6 @@
 ﻿import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
+import { APP_VERSION } from "../constants";
 import {
     Book, Shield, Download, MessageSquare, Users,
     FileText, Zap, ChevronRight, Menu, X, ArrowLeft,
@@ -49,7 +50,7 @@ const DocsView = () => {
             <aside className={`fixed inset-y-0 left-0 z-40 w-72 bg-[#151518] border-r border-white/10 flex flex-col transform transition-transform duration-300 md:relative md:translate-x-0 ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'} pt-16 md:pt-0`}>
                 <div className="p-6 border-b border-white/10">
                     <h1 className="text-2xl font-bold text-white tracking-tight">Unity <span className="text-blue-500">Docs</span></h1>
-                    <p className="text-xs text-gray-500 mt-1">Full User Manual · v1.0.3</p> {/* 👈 Version Updated */}
+                    <p className="text-xs text-gray-500 mt-1">Full User Manual · v{APP_VERSION}</p> {/* 👈 Version Updated */}
                 </div>
 
                 <nav className="flex-1 p-4 space-y-1 overflow-y-auto custom-scrollbar">
@@ -121,7 +122,7 @@ const DocsView = () => {
                                 <div>
                                     <h4 className="text-white font-bold text-sm">Auto-Update System</h4>
                                     <p className="text-sm text-gray-400 mt-1">
-                                        The app checks for updates (e.g., v1.0.3) in the background. If a new version is found, it downloads silently and applies automatically the next time you restart the app.
+                                        The app checks for updates (e.g., v{APP_VERSION}) in the background. If a new version is found, it downloads silently and applies automatically the next time you restart the app.
                                     </p>
                                 </div>
                             </div>

@@ -9,8 +9,8 @@ import Cropper from 'react-easy-crop';
 import getCroppedImg from "../utils/cropImage";
 import toast from 'react-hot-toast';
 
-const CLOUD_NAME = "dfnetnyzf"; // Copy from Cloudinary Dashboard
-const UPLOAD_PRESET = "unity-app"; //  Already set from your screenshot
+const CLOUD_NAME = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME;
+const UPLOAD_PRESET = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET;
 
 const ProfileModal = ({ user, onClose, onUpdateLocalUser }) => {
     const [name, setName] = useState(user.name || "");

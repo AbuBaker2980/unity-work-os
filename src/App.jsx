@@ -1,22 +1,22 @@
-﻿import React, { useState, useEffect, useRef } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { HashRouter, Routes, Route, Link } from 'react-router-dom';
 import { signOut, onAuthStateChanged } from 'firebase/auth';
-import {
-    doc, getDoc, collection, query, where, addDoc, updateDoc, deleteDoc, onSnapshot, serverTimestamp, orderBy, limit
-} from 'firebase/firestore';
-import { toDateObj, getTodayString } from "./utils/dateUtils";
+import { doc, getDoc, collection, query, where, onSnapshot, orderBy, limit, addDoc, updateDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
+import { toDateObj } from "./utils/dateUtils";
 import {
     Layout, Box, Briefcase, CheckSquare, Clipboard, Users, MessageSquare, LogOut,
-    Plus, Search, Smartphone, Folder, FolderPlus, Link as LinkIcon, Trash2, ChevronRight, ChevronDown,
-    Settings, CheckCircle, XCircle, Command, Bell, Monitor, Menu, X, LayoutGrid, Cpu, Filter, Layers, HardDrive, File,
-    Lock, Book
+    Plus, Search, Smartphone, Folder, FolderPlus, Link as LinkIcon, Trash2, ChevronRight,
+    Settings, CheckCircle, XCircle, Command, Bell, Monitor, Menu, X, Layers, HardDrive, Lock
 } from 'lucide-react';
 import { Toaster } from 'react-hot-toast';
 
 import { auth, db } from "./firebase/config";
-import { playSound } from "./utils/soundUtils";
+import { APP_VERSION, DOWNLOAD_LINK } from "./constants";
 
-// Views Imports
+// Context
+import { DataProvider, useData } from "./contexts/DataContext";
+
+// Views
 import AuthView from "./views/AuthView";
 import OnboardingView from "./views/OnboardingView";
 import DashboardView from "./views/DashboardView";
@@ -30,94 +30,70 @@ import ProfileModal from "./components/ProfileModal";
 import CommandPalette from "./components/CommandPalette";
 
 const APP_ID = "unity-work-os";
-const getCollectionRef = (collectionName) => collection(db, 'artifacts', APP_ID, 'public', 'data', collectionName);
-const MESSAGES_COLLECTION_PATH = ['artifacts', APP_ID, 'public', 'data', 'messages'];
-const PROJECT_MESSAGES_COLLECTION_PATH = ['artifacts', APP_ID, 'public', 'data', 'project_messages'];
+const getCollectionRef = (name) => collection(db, 'artifacts', APP_ID, 'public', 'data', name);
 const STORAGE_KEYS = { LAST_READ_CHAT: "workos_last_read_chat" };
 
-const DOWNLOAD_LINK = "https://github.com/AbuBaker2980/unity-work-os/releases/download/v1.0.3/Unity.Work.OS.Setup.1.0.3.exe";
+// --- SIDEBAR BUTTON ---
+const SidebarBtn = ({ icon: Icon, label, active, onClick, isOpen, locked, alert }) => (
+    <button onClick={locked ? undefined : onClick} className={`w-full flex items-center px-4 py-3 mb-1 rounded-xl transition-all duration-300 group outline-none relative overflow-hidden ${active ? 'text-white bg-gradient-to-r from-blue-600/20 to-transparent border-l-2 border-blue-500 shadow-[0_0_15px_rgba(37,99,235,0.2)]' : locked ? 'text-gray-600 cursor-not-allowed opacity-40 bg-transparent' : 'text-gray-500 hover:bg-white/5 hover:text-gray-300'}`} title={locked ? "Access Restricted" : label}>
+        <div className="relative z-10 flex items-center w-full">
+            <div className="relative"><Icon size={20} className={`transition-all duration-300 ${active ? 'text-blue-400 scale-110 drop-shadow-[0_0_8px_rgba(59,130,246,0.8)]' : locked ? 'text-gray-600' : 'group-hover:text-white'}`} />{alert && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-red-500 border-2 border-[#0f0f12] rounded-full animate-pulse shadow-[0_0_10px_red]"></span>}</div>
+            <span className={`ml-4 font-medium text-sm tracking-wide transition-all duration-300 whitespace-nowrap ${isOpen ? 'opacity-100 translate-x-0' : 'opacity-0 -translate-x-4 w-0 overflow-hidden'}`}>{label}</span>
+            {locked && isOpen && <Lock size={12} className="ml-auto text-gray-500" />}
+        </div>
+    </button>
+);
 
-// --- DASHBOARD COMPONENT ---
-const Dashboard = ({
-    user, handleLogout, onUpdateUser,
-    localProjects, localFolders, localTasks, localActivities,
-    activityDate, setActivityDate,
-    inAppNotifications, clearNotifications
-}) => {
+// --- APP LAYOUT (Uses Context) ---
+const AppLayout = ({ user, handleLogout, onUpdateUser }) => {
+    // GET DATA FROM CONTEXT
+    const { projects, folders, tasks, activities, inAppNotifications, clearNotifications, activityDate, setActivityDate, logActivity } = useData();
+
     const [view, setView] = useState('dashboard');
     const [teamTab, setTeamTab] = useState('roster');
     const [selectedProjectId, setSelectedProjectId] = useState(null);
     const [projectFilter, setProjectFilter] = useState('All');
 
-    // RESPONSIVE SIDEBAR STATE
+    // UI States
     const [isSidebarOpen, setSidebarOpen] = useState(true);
     const [isMobileMenuOpen, setMobileMenuOpen] = useState(false);
-
-    // --- NOTIFICATION STATES ---
     const [unreadChat, setUnreadChat] = useState(false);
     const [unreadProjectIds, setUnreadProjectIds] = useState(new Set());
-
     const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
     const [showProfileModal, setShowProfileModal] = useState(false);
     const [isCommandPaletteOpen, setCommandPaletteOpen] = useState(false);
     const [isNotifOpen, setNotifOpen] = useState(false);
-
     const [isCreateFolderOpen, setCreateFolderOpen] = useState(false);
+
+    // Form States
     const [newFolderName, setNewFolderName] = useState("");
     const [newFolderUrl, setNewFolderUrl] = useState("");
     const [collapsedFolders, setCollapsedFolders] = useState({});
-
     const [projectSearch, setProjectSearch] = useState("");
     const [editingFolder, setEditingFolder] = useState(null);
     const [editFolderName, setEditFolderName] = useState("");
     const [editFolderUrl, setEditFolderUrl] = useState("");
 
-    const projects = localProjects || [];
-    const folders = localFolders || [];
-    const tasks = localTasks || [];
-    const activities = localActivities || [];
+    const toggleFolder = (id) => setCollapsedFolders(prev => ({ ...prev, [id]: !prev[id] }));
 
-    const toggleFolder = (folderId) => setCollapsedFolders(prev => ({ ...prev, [folderId]: !prev[folderId] }));
-
+    // Global Key Bindings
     useEffect(() => {
-        const handleKeyDown = (e) => {
-            if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
-                e.preventDefault();
-                setCommandPaletteOpen(prev => !prev);
-            }
-        };
+        const handleKeyDown = (e) => { if ((e.ctrlKey || e.metaKey) && e.key === 'k') { e.preventDefault(); setCommandPaletteOpen(prev => !prev); } };
         document.addEventListener('keydown', handleKeyDown);
         return () => document.removeEventListener('keydown', handleKeyDown);
     }, []);
 
-    useEffect(() => {
-        const handleResize = () => {
-            if (window.innerWidth < 768) {
-                setSidebarOpen(false);
-            } else {
-                setSidebarOpen(true);
-            }
-        };
-        window.addEventListener('resize', handleResize);
-        handleResize();
-        return () => window.removeEventListener('resize', handleResize);
-    }, []);
+    useEffect(() => { const handleResize = () => setSidebarOpen(window.innerWidth >= 768); window.addEventListener('resize', handleResize); handleResize(); return () => window.removeEventListener('resize', handleResize); }, []);
 
-    // --- GLOBAL CHAT LISTENER ---
+    // Chat Status Listener
     useEffect(() => {
         if (!user?.teamId) return;
-        const msgsRef = collection(db, ...MESSAGES_COLLECTION_PATH);
-        const q = query(msgsRef, where("teamId", "==", user.teamId), orderBy('createdAt', 'desc'), limit(10));
+        const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'messages'), where("teamId", "==", user.teamId), orderBy('createdAt', 'desc'), limit(10));
         const unsubscribe = onSnapshot(q, (snapshot) => {
             const lastRead = localStorage.getItem(STORAGE_KEYS.LAST_READ_CHAT) || new Date(0).toISOString();
             const hasNew = snapshot.docs.some(doc => toDateObj(doc.data().createdAt) > new Date(lastRead) && doc.data().senderId !== user.uid);
-
-            if (view !== 'team' || teamTab !== 'chat') {
-                setUnreadChat(hasNew);
-            } else {
-                setUnreadChat(false);
-                localStorage.setItem(STORAGE_KEYS.LAST_READ_CHAT, new Date().toISOString());
-            }
+            if (view !== 'team' || teamTab !== 'chat') setUnreadChat(hasNew);
+            else { setUnreadChat(false); localStorage.setItem(STORAGE_KEYS.LAST_READ_CHAT, new Date().toISOString()); }
         });
         return () => unsubscribe();
     }, [user.teamId, view, teamTab]);
@@ -130,13 +106,7 @@ const Dashboard = ({
         if (newView === 'tasks') setView('tasks');
     };
 
-    const markProjectRead = (projectId) => {
-        setUnreadProjectIds(prev => {
-            const newSet = new Set(prev);
-            newSet.delete(projectId);
-            return newSet;
-        });
-    };
+    const markProjectRead = (id) => setUnreadProjectIds(prev => { const s = new Set(prev); s.delete(id); return s; });
 
     const checkPermission = (action) => {
         const role = user?.role || 'Guest';
@@ -147,10 +117,6 @@ const Dashboard = ({
         if (action === 'DELETE_CONTENT') return isLead;
         if (action === 'MANAGE_FOLDERS') return isLead || isContributor;
         return false;
-    };
-
-    const logActivity = async (text, type, meta = {}) => {
-        await addDoc(getCollectionRef('activities'), { text, type, meta, timestamp: serverTimestamp(), teamId: user.teamId });
     };
 
     // --- ACTIONS ---
@@ -164,15 +130,13 @@ const Dashboard = ({
 
     const handleEditFolder = async (folderId) => {
         if (!editFolderName.trim()) return;
-        try {
-            await updateDoc(doc(getCollectionRef('folders'), folderId), { name: editFolderName, storeUrl: editFolderUrl });
-            setEditingFolder(null); setEditFolderName(""); setEditFolderUrl("");
-        } catch (error) { console.error("Error updating folder", error); }
+        await updateDoc(doc(getCollectionRef('folders'), folderId), { name: editFolderName, storeUrl: editFolderUrl });
+        setEditingFolder(null);
     };
 
     const deleteFolder = async (folderId, folderName) => {
-        if (!checkPermission('DELETE_CONTENT')) return alert("Access Denied. Only Team Leads can delete.");
-        if (!confirm(`Are you sure you want to delete the folder "${folderName}"?\n\nThis will NOT delete the projects inside, but will move them to 'Unassigned'.`)) return;
+        if (!checkPermission('DELETE_CONTENT')) return alert("Access Denied.");
+        if (!confirm(`Delete folder "${folderName}"? Projects will become Unassigned.`)) return;
         const projectsInFolder = projects.filter(p => p.folderId === folderId);
         for (const proj of projectsInFolder) await updateDoc(doc(getCollectionRef('projects'), proj.id), { folderId: null });
         await deleteDoc(doc(getCollectionRef('folders'), folderId));
@@ -187,20 +151,12 @@ const Dashboard = ({
     };
 
     const updateProject = async (id, data) => updateDoc(doc(getCollectionRef('projects'), id), data);
-
-    const deleteProject = async (id) => {
-        if (checkPermission('DELETE_CONTENT')) {
-            if (confirm("Are you sure you want to permanently delete this project?\n\nThis action cannot be undone.")) {
-                await deleteDoc(doc(getCollectionRef('projects'), id));
-                if (selectedProjectId === id) setSelectedProjectId(null);
-            }
-        }
-    };
-
+    const deleteProject = async (id) => { if (checkPermission('DELETE_CONTENT') && confirm("Delete Project?")) { await deleteDoc(doc(getCollectionRef('projects'), id)); if (selectedProjectId === id) setSelectedProjectId(null); } };
     const addTask = async (taskData) => addDoc(getCollectionRef('tasks'), { ...taskData, teamId: user.teamId });
     const updateTask = async (id, data) => updateDoc(doc(getCollectionRef('tasks'), id), data);
     const deleteTask = async (id) => { if (confirm("Delete task?")) deleteDoc(doc(getCollectionRef('tasks'), id)); };
-    const handleActivityClick = (activity) => { if (activity.meta?.view) { setView(activity.meta.view); if (activity.meta.projectId) setSelectedProjectId(activity.meta.projectId); } };
+
+    const handleActivityClick = (act) => { if (act.meta?.view) { setView(act.meta.view); if (act.meta.projectId) setSelectedProjectId(act.meta.projectId); } };
 
     const filteredProjects = projects.filter(p => {
         const matchesSearch = p.name.toLowerCase().includes(projectSearch.toLowerCase());
@@ -208,77 +164,30 @@ const Dashboard = ({
         return matchesSearch && matchesTab;
     });
 
-    const handleDragStart = (e, projectId) => { e.dataTransfer.setData("projectId", projectId); e.dataTransfer.effectAllowed = "move"; };
-    const handleDropOnFolder = async (e, folderId) => { e.preventDefault(); const projectId = e.dataTransfer.getData("projectId"); if (projectId) { await updateDoc(doc(getCollectionRef('projects'), projectId), { folderId }); } };
-    const handleDropOnUnassigned = async (e) => { e.preventDefault(); const projectId = e.dataTransfer.getData("projectId"); if (projectId) { await updateDoc(doc(getCollectionRef('projects'), projectId), { folderId: null }); } };
+    const handleDragStart = (e, pid) => { e.dataTransfer.setData("projectId", pid); e.dataTransfer.effectAllowed = "move"; };
+    const handleDropOnFolder = async (e, fid) => { e.preventDefault(); const pid = e.dataTransfer.getData("projectId"); if (pid) await updateDoc(doc(getCollectionRef('projects'), pid), { folderId: fid }); };
+    const handleDropOnUnassigned = async (e) => { e.preventDefault(); const pid = e.dataTransfer.getData("projectId"); if (pid) await updateDoc(doc(getCollectionRef('projects'), pid), { folderId: null }); };
 
     const renderProjectItem = (p) => {
         let Icon = Smartphone;
-        let colorClass = "text-gray-400";
-        if (p.platform === 'iOS') { Icon = Smartphone; colorClass = "text-gray-400"; }
-        if (p.platform === 'Windows' || p.platform === 'PC') { Icon = Monitor; colorClass = "text-gray-400"; }
+        if (p.platform === 'Windows' || p.platform === 'PC') Icon = Monitor;
         const hasUnread = unreadProjectIds.has(p.id);
-
         return (
-            <div
-                key={p.id}
-                draggable
-                onDragStart={(e) => handleDragStart(e, p.id)}
-                onClick={() => setSelectedProjectId(p.id)}
-                className={`group flex items-center justify-between px-3 py-1.5 rounded-md cursor-pointer text-sm mb-0.5 transition-all relative
-                    ${selectedProjectId === p.id ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-[#1a1a1d] hover:text-white'}`}
-            >
-                <div className="flex items-center gap-2 truncate flex-1">
-                    <Icon size={14} className={selectedProjectId === p.id ? 'text-white' : colorClass} />
-                    <span className={`truncate text-xs ${hasUnread ? "font-bold text-white" : ""}`}>{p.name}</span>
-                </div>
+            <div key={p.id} draggable onDragStart={(e) => handleDragStart(e, p.id)} onClick={() => setSelectedProjectId(p.id)} className={`group flex items-center justify-between px-3 py-1.5 rounded-md cursor-pointer text-sm mb-0.5 transition-all relative ${selectedProjectId === p.id ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-[#1a1a1d] hover:text-white'}`}>
+                <div className="flex items-center gap-2 truncate flex-1"><Icon size={14} className={selectedProjectId === p.id ? 'text-white' : 'text-gray-400'} /><span className={`truncate text-xs ${hasUnread ? "font-bold text-white" : ""}`}>{p.name}</span></div>
                 {hasUnread && <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse shadow-[0_0_5px_red] mr-2"></div>}
-                {checkPermission('DELETE_CONTENT') && (
-                    <button onClick={(e) => { e.stopPropagation(); deleteProject(p.id); }} className={`opacity-0 group-hover:opacity-100 p-1 hover:text-red-400 rounded transition-all ${selectedProjectId === p.id ? 'text-blue-200 hover:text-white' : 'text-gray-500'}`} title="Delete Project">
-                        <Trash2 size={12} />
-                    </button>
-                )}
+                {checkPermission('DELETE_CONTENT') && <button onClick={(e) => { e.stopPropagation(); deleteProject(p.id); }} className={`opacity-0 group-hover:opacity-100 p-1 hover:text-red-400 rounded transition-all ${selectedProjectId === p.id ? 'text-blue-200 hover:text-white' : 'text-gray-500'}`}><Trash2 size={12} /></button>}
             </div>
         );
     };
 
-    const SidebarBtn = ({ icon: Icon, label, active, onClick, isOpen, locked, alert }) => (
-        <button
-            onClick={locked ? undefined : onClick}
-            className={`w-full flex items-center px-4 py-3 mb-1 rounded-xl transition-all duration-300 group outline-none relative overflow-hidden 
-                ${active ? 'text-white bg-gradient-to-r from-blue-600/20 to-transparent border-l-2 border-blue-500 shadow-[0_0_15px_rgba(37,99,235,0.2)]'
-                    : locked ? 'text-gray-600 cursor-not-allowed opacity-40 bg-transparent'
-                        : 'text-gray-500 hover:bg-white/5 hover:text-gray-300'}`
-            }
-            title={locked ? "Access Restricted" : label}
-        >
-            <div className="relative z-10 flex items-center w-full">
-                <div className="relative">
-                    <Icon size={20} className={`transition-all duration-300 ${active ? 'text-blue-400 scale-110 drop-shadow-[0_0_8px_rgba(59,130,246,0.8)]' : locked ? 'text-gray-600' : 'group-hover:text-white'}`} />
-                    {alert && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-red-500 border-2 border-[#0f0f12] rounded-full animate-pulse shadow-[0_0_10px_red]"></span>}
-                </div>
-                <span className={`ml-4 font-medium text-sm tracking-wide transition-all duration-300 whitespace-nowrap ${isOpen ? 'opacity-100 translate-x-0' : 'opacity-0 -translate-x-4 w-0 overflow-hidden'}`}>
-                    {label}
-                </span>
-                {locked && isOpen && <Lock size={12} className="ml-auto text-gray-500" />}
-            </div>
-        </button>
-    );
-
     return (
         <div className="flex h-screen bg-[#050505] text-gray-300 overflow-hidden font-sans selection:bg-blue-500/30 selection:text-blue-200 relative">
-            <style>{`
-                ::-webkit-scrollbar { width: 6px; height: 6px; }
-                ::-webkit-scrollbar-track { background: transparent; }
-                ::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
-                ::-webkit-scrollbar-thumb:hover { background: #555; }
-                .animate-fade-in { animation: fadeIn 0.4s ease-out; }
-                @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-            `}</style>
+            <style>{` ::-webkit-scrollbar { width: 6px; height: 6px; } ::-webkit-scrollbar-track { background: transparent; } ::-webkit-scrollbar-thumb { background: #6b7280; border-radius: 3px; } ::-webkit-scrollbar-thumb:hover { background: #9ca3af; } .animate-fade-in { animation: fadeIn 0.4s ease-out; } @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } } `}</style>
 
             <CommandPalette isOpen={isCommandPaletteOpen} onClose={() => setCommandPaletteOpen(false)} projects={projects} tasks={tasks} teamMembers={[]} onNavigate={handleNavigate} />
             {showProfileModal && (<ProfileModal user={user} onClose={() => setShowProfileModal(false)} onUpdateLocalUser={onUpdateUser} />)}
-            {showLogoutConfirm && (<div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 animate-fade-in"><div className="bg-[#151518] border border-white/10 p-8 rounded-3xl shadow-2xl max-w-sm w-full text-center relative animate-scale-up"><div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mx-auto mb-6 border border-red-500/20"><LogOut size={32} className="text-red-500 ml-1" /></div><h3 className="text-2xl font-bold text-white mb-2">Log Out?</h3><p className="text-sm text-gray-400 mb-8 leading-relaxed">Are you sure you want to sign out?</p><div className="flex gap-3"><button onClick={() => setShowLogoutConfirm(false)} className="flex-1 py-3.5 rounded-xl bg-white/5 hover:bg-white/10 text-gray-300 font-bold text-sm transition-colors border border-white/5 hover:border-white/10">Cancel</button><button onClick={handleLogout} className="flex-1 py-3.5 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold text-sm transition-colors shadow-lg shadow-red-900/20 flex items-center justify-center gap-2">Yes, Logout</button></div></div></div>)}
+            {showLogoutConfirm && (<div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 animate-fade-in"><div className="bg-[#151518] border border-white/10 p-8 rounded-3xl shadow-2xl max-w-sm w-full text-center relative"><div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mx-auto mb-6 border border-red-500/20"><LogOut size={32} className="text-red-500 ml-1" /></div><h3 className="text-2xl font-bold text-white mb-2">Log Out?</h3><p className="text-sm text-gray-400 mb-8 leading-relaxed">Are you sure you want to sign out?</p><div className="flex gap-3"><button onClick={() => setShowLogoutConfirm(false)} className="flex-1 py-3.5 rounded-xl bg-white/5 hover:bg-white/10 text-gray-300 font-bold text-sm border border-white/5">Cancel</button><button onClick={handleLogout} className="flex-1 py-3.5 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold text-sm shadow-lg shadow-red-900/20 flex items-center justify-center gap-2">Yes, Logout</button></div></div></div>)}
             {isMobileMenuOpen && (<div className="fixed inset-0 bg-black/80 z-30 md:hidden backdrop-blur-sm animate-fade-in" onClick={() => setMobileMenuOpen(false)} />)}
 
             <div className={`fixed inset-y-0 left-0 z-40 bg-[#050505] border-r border-white/5 flex flex-col transition-transform duration-300 ease-in-out md:relative ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'} ${isSidebarOpen ? 'md:w-64' : 'md:w-20'} md:translate-x-0 w-64 shadow-[10px_0_30px_rgba(0,0,0,0.5)]`}>
@@ -288,21 +197,74 @@ const Dashboard = ({
                 <nav className="flex-1 py-2 px-3 space-y-2 overflow-y-auto">
                     <SidebarBtn icon={Layout} label="Dashboard" active={view === 'dashboard'} onClick={() => handleNavigate('dashboard')} isOpen={isSidebarOpen || isMobileMenuOpen} />
                     <SidebarBtn icon={CheckSquare} label="Daily Tasks" active={view === 'tasks'} onClick={() => handleNavigate('tasks')} isOpen={isSidebarOpen || isMobileMenuOpen} />
-                    {(checkPermission('VIEW_PROJECTS') || ['Designer', '3D Modeler'].includes(user.role)) && (
-                        <SidebarBtn icon={Briefcase} label="Projects" active={view === 'projects'} onClick={() => handleNavigate('projects')} isOpen={isSidebarOpen || isMobileMenuOpen} locked={!checkPermission('VIEW_PROJECTS')} alert={unreadProjectIds.size > 0} />
-                    )}
+                    {(checkPermission('VIEW_PROJECTS') || ['Designer', '3D Modeler'].includes(user.role)) && (<SidebarBtn icon={Briefcase} label="Projects" active={view === 'projects'} onClick={() => handleNavigate('projects')} isOpen={isSidebarOpen || isMobileMenuOpen} locked={!checkPermission('VIEW_PROJECTS')} alert={unreadProjectIds.size > 0} />)}
                     <SidebarBtn icon={Users} label="Team" active={(view === 'team' && teamTab === 'roster')} onClick={() => handleNavigate('team', 'roster')} isOpen={isSidebarOpen || isMobileMenuOpen} />
                     <button onClick={() => handleNavigate('team', 'chat')} className={`relative w-full flex items-center px-4 py-3 mb-1 rounded-xl transition-all duration-300 group outline-none overflow-hidden ${(view === 'team' && teamTab === 'chat') ? 'text-white' : 'text-gray-500 hover:text-gray-200'}`}>{(view === 'team' && teamTab === 'chat') && (<><div className="absolute left-0 top-0 bottom-0 w-1 bg-purple-500 shadow-[0_0_15px_rgba(168,85,247,0.8)] rounded-r-full" /><div className="absolute inset-0 bg-gradient-to-r from-purple-600/20 to-transparent" /></>)}<div className="relative flex items-center z-10"><div className="relative"><MessageSquare size={20} className={`transition-all duration-300 ${(view === 'team' && teamTab === 'chat') ? "text-purple-400 scale-110 drop-shadow-[0_0_8px_rgba(168,85,247,0.8)]" : "group-hover:text-white"}`} />{unreadChat && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-red-500 border-2 border-[#0f0f12] rounded-full animate-pulse shadow-[0_0_10px_red]"></span>}</div><span className={`ml-4 font-medium text-sm tracking-wide transition-all duration-300 whitespace-nowrap ${(isSidebarOpen || isMobileMenuOpen) ? "opacity-100 translate-x-0" : "opacity-0 -translate-x-4 w-0 overflow-hidden"}`}>Team Chat</span></div></button>
                     <SidebarBtn icon={Layers} label="Archives" active={view === 'archives'} onClick={() => handleNavigate('archives')} isOpen={isSidebarOpen || isMobileMenuOpen} />
                     <SidebarBtn icon={Clipboard} label="Reports" active={view === 'reports'} onClick={() => handleNavigate('reports')} isOpen={isSidebarOpen || isMobileMenuOpen} />
                 </nav>
 
-                <div className="p-4 bg-[#050505]"><div className={`flex items-center ${(isSidebarOpen || isMobileMenuOpen) ? 'justify-between' : 'justify-center'} p-2.5 rounded-2xl bg-white/5 border border-white/5 hover:bg-white/10 hover:border-white/10 transition-all cursor-pointer backdrop-blur-sm shadow-lg group`}>{(isSidebarOpen || isMobileMenuOpen) ? (<div onClick={() => setShowProfileModal(true)} className="flex items-center gap-3 overflow-hidden flex-1 mr-2">{user.avatar ? (<img src={user.avatar} alt="Me" className="w-9 h-9 rounded-full bg-black/50 border border-white/10 object-cover group-hover:border-blue-500 transition-colors" />) : (<div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-600 to-cyan-500 flex items-center justify-center text-white font-bold text-xs shadow-lg">{user.name ? user.name.charAt(0).toUpperCase() : 'U'}</div>)}<div className="flex flex-col overflow-hidden"><span className="text-[9px] uppercase font-bold text-blue-400 mb-0.5 tracking-wider">{user.role}</span><span className="text-xs text-white truncate w-24 font-medium group-hover:text-blue-200 transition-colors">{user.name || "User"}</span></div></div>) : null}<button onClick={() => setShowLogoutConfirm(true)} className="text-gray-500 hover:text-red-400 transition-colors p-1.5 hover:bg-red-500/10 rounded-lg" title="Logout"><LogOut size={18} /></button></div></div>
+                {/* --- SIDEBAR FOOTER WITH NOTIFICATIONS & PROFILE --- */}
+                <div className="p-4 bg-[#050505] space-y-2">
+
+                    {/* NOTIFICATION BUTTON (Now in Sidebar) */}
+                    <div className="relative group">
+                        <button onClick={() => setNotifOpen(!isNotifOpen)} className={`w-full flex items-center ${isSidebarOpen ? 'justify-between px-4' : 'justify-center'} py-2.5 rounded-xl bg-white/5 border border-white/5 hover:bg-white/10 hover:border-white/10 transition-all text-gray-400 hover:text-white`}>
+                            <div className="flex items-center gap-3">
+                                <div className="relative">
+                                    <Bell size={18} />
+                                    {inAppNotifications.length > 0 && <span className="absolute top-0 right-0 w-2 h-2 bg-red-500 rounded-full border border-[#0f0f12]" />}
+                                </div>
+                                {isSidebarOpen && <span className="text-xs font-bold">Notifications</span>}
+                            </div>
+                            {isSidebarOpen && inAppNotifications.length > 0 && <span className="bg-red-500/20 text-red-400 text-[9px] px-1.5 py-0.5 rounded font-bold">{inAppNotifications.length}</span>}
+                        </button>
+
+                        {/* NOTIFICATION POPUP (Opens Upwards/Right) */}
+                        {isNotifOpen && (
+                            <>
+                                <div className="fixed inset-0 z-40" onClick={() => setNotifOpen(false)} />
+                                <div className={`absolute bottom-full mb-2 ${isSidebarOpen ? 'left-0 w-72' : 'left-full ml-2 w-72'} bg-[#151518] border border-white/10 rounded-xl shadow-2xl z-50 p-2 overflow-hidden animate-fade-in`}>
+                                    <div className="flex justify-between items-center px-3 py-2 mb-1 border-b border-white/5">
+                                        <h4 className="text-[10px] uppercase font-bold text-gray-500">Notifications</h4>
+                                        {inAppNotifications.length > 0 && <button onClick={clearNotifications} className="text-[10px] text-blue-400 hover:underline">Clear</button>}
+                                    </div>
+                                    {inAppNotifications.length === 0 ? (
+                                        <p className="text-xs text-gray-600 px-2 py-4 text-center">No new notifications</p>
+                                    ) : (
+                                        <div className="max-h-64 overflow-y-auto custom-scrollbar">
+                                            {inAppNotifications.map(n => (
+                                                <div key={n.id} className="p-2.5 hover:bg-white/5 rounded-lg text-xs text-gray-300 border-b border-white/5 last:border-0 mb-1 flex items-start gap-2">
+                                                    <div className="w-1.5 h-1.5 rounded-full bg-blue-500 mt-1.5 shrink-0" />
+                                                    <div><p className="leading-snug">{n.text}</p><p className="text-[9px] text-gray-600 mt-1">{n.time}</p></div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            </>
+                        )}
+                    </div>
+
+                    {/* PROFILE BUTTON */}
+                    <div className={`flex items-center ${(isSidebarOpen || isMobileMenuOpen) ? 'justify-between' : 'justify-center'} p-2.5 rounded-2xl bg-white/5 border border-white/5 hover:bg-white/10 hover:border-white/10 transition-all cursor-pointer backdrop-blur-sm shadow-lg group`}>
+                        {(isSidebarOpen || isMobileMenuOpen) ? (
+                            <div onClick={() => setShowProfileModal(true)} className="flex items-center gap-3 overflow-hidden flex-1 mr-2">
+                                {user.avatar ? (<img src={user.avatar} alt="Me" className="w-9 h-9 rounded-full bg-black/50 border border-white/10 object-cover group-hover:border-blue-500 transition-colors" />) : (<div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-600 to-cyan-500 flex items-center justify-center text-white font-bold text-xs shadow-lg">{user.name ? user.name.charAt(0).toUpperCase() : 'U'}</div>)}
+                                <div className="flex flex-col overflow-hidden"><span className="text-[9px] uppercase font-bold text-blue-400 mb-0.5 tracking-wider">{user.role}</span><span className="text-xs text-white truncate w-24 font-medium group-hover:text-blue-200 transition-colors">{user.name || "User"}</span></div>
+                            </div>
+                        ) : null}
+                        <button onClick={() => setShowLogoutConfirm(true)} className="text-gray-500 hover:text-red-400 transition-colors p-1.5 hover:bg-red-500/10 rounded-lg" title="Logout"><LogOut size={18} /></button>
+                    </div>
+                </div>
             </div>
 
+            {/* MAIN CONTENT AREA */}
             <div className="flex-1 flex flex-col min-w-0 bg-[#0a0a0a] relative h-screen overflow-hidden">
+                {/* Mobile Header */}
                 <div className="md:hidden h-16 bg-[#0f0f12] border-b border-white/5 flex items-center justify-between px-4 shrink-0 z-20"><button onClick={() => setMobileMenuOpen(true)} className="text-gray-400 hover:text-white p-2"><Menu size={24} /></button><span className="font-bold text-white tracking-wide">UNITY CORE</span><button onClick={() => setNotifOpen(!isNotifOpen)} className="text-gray-400 hover:text-white p-2 relative"><Bell size={20} />{inAppNotifications.length > 0 && <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border border-[#0f0f12]" />}</button></div>
-                <div className="hidden md:block absolute top-4 right-6 z-30"><div className="relative"><button onClick={() => setNotifOpen(!isNotifOpen)} className="text-gray-500 hover:text-white p-2 rounded-full bg-black/20 hover:bg-white/10 border border-white/5 transition-colors relative"><Bell size={18} />{inAppNotifications.length > 0 && <span className="absolute top-1.5 right-2 w-2 h-2 bg-red-500 rounded-full border border-[#0f0f12]" />}</button>{isNotifOpen && (<><div className="fixed inset-0 z-30" onClick={() => setNotifOpen(false)} /><div className="absolute right-0 top-10 w-72 bg-[#151518] border border-white/10 rounded-xl shadow-2xl z-40 p-2 overflow-hidden animate-fade-in origin-top-right"><div className="flex justify-between items-center px-3 py-2 mb-1 border-b border-white/5"><h4 className="text-[10px] uppercase font-bold text-gray-500">Notifications</h4>{inAppNotifications.length > 0 && <button onClick={clearNotifications} className="text-[10px] text-blue-400 hover:underline">Clear</button>}</div>{inAppNotifications.length === 0 ? (<p className="text-xs text-gray-600 px-2 py-4 text-center">No new notifications</p>) : (<div className="max-h-64 overflow-y-auto custom-scrollbar">{inAppNotifications.map(n => (<div key={n.id} className="p-2.5 hover:bg-white/5 rounded-lg text-xs text-gray-300 border-b border-white/5 last:border-0 mb-1 flex items-start gap-2"><div className="w-1.5 h-1.5 rounded-full bg-blue-500 mt-1.5 shrink-0" /><div><p className="leading-snug">{n.text}</p><p className="text-[9px] text-gray-600 mt-1">{n.time}</p></div></div>))}</div>)}</div></>)}</div></div>
+
+                {/* ❌ OLD FLOATING NOTIFICATION REMOVED FROM HERE */}
 
                 <div className="flex-1 overflow-y-auto overflow-x-hidden relative custom-scrollbar">
                     <div className="absolute top-0 left-0 w-full h-96 bg-gradient-to-b from-blue-900/10 to-transparent pointer-events-none" />
@@ -311,10 +273,7 @@ const Dashboard = ({
                         {view === 'projects' && checkPermission('VIEW_PROJECTS') && (
                             <div className="h-full flex flex-col">
                                 <div className="px-8 pt-8 pb-4 shrink-0 flex justify-between items-end">
-                                    <div>
-                                        <h1 className="text-2xl font-bold text-white tracking-tight flex items-center gap-3"><Briefcase className="text-blue-500" size={24} /> Project Vault</h1>
-                                        <p className="text-gray-500 mt-1 text-sm">Manage your digital vault and assets.</p>
-                                    </div>
+                                    <div><h1 className="text-2xl font-bold text-white tracking-tight flex items-center gap-3"><Briefcase className="text-blue-500" size={24} /> Project Vault</h1><p className="text-gray-500 mt-1 text-sm">Manage your digital vault and assets.</p></div>
                                 </div>
                                 <div className="flex-1 flex min-h-0 overflow-hidden">
                                     <div className={`${selectedProjectId ? 'w-80 border-r border-white/5' : 'w-full'} bg-[#0f0f12]/50 backdrop-blur-md flex flex-col transition-all duration-300 relative`}>
@@ -344,90 +303,26 @@ const Dashboard = ({
     );
 };
 
-// --- MAIN APP COMPONENT ---
+// --- MAIN APP (Container) ---
 const MainApp = () => {
     const [user, setUser] = useState(null);
     const [authLoading, setAuthLoading] = useState(true);
-    const [projects, setProjects] = useState([]);
-    const [folders, setFolders] = useState([]);
-    const [tasks, setTasks] = useState([]);
-    const [activities, setActivities] = useState([]);
-    const [activityDate, setActivityDate] = useState(getTodayString());
-    const [inAppNotifications, setInAppNotifications] = useState([]);
-    const isFirstLoad = useRef(true);
-    const projectsRef = useRef([]);
-
-    useEffect(() => { projectsRef.current = projects; }, [projects]);
-
-    const requestNotificationPermission = () => { if ("Notification" in window && Notification.permission !== "granted") Notification.requestPermission(); };
-    const showDesktopNotification = (title, body) => { if (Notification.permission === "granted") { const notif = new Notification(title, { body, icon: 'vite.svg', tag: 'work-os-notification' }); notif.onclick = () => window.focus(); } playSound('notification'); };
-    const addInAppNotification = (text) => { const newNotif = { id: crypto.randomUUID(), text, time: new Date().toLocaleTimeString() }; setInAppNotifications(prev => [newNotif, ...prev]); };
 
     useEffect(() => {
-        if (!user?.teamId) return;
-        requestNotificationPermission();
-
-        const unsubProjects = onSnapshot(query(getCollectionRef('projects'), where('teamId', '==', user.teamId)), (s) => {
-            const fetchedProjects = s.docs.map(d => ({ id: d.id, ...d.data() }));
-            if (!isFirstLoad.current) { s.docChanges().forEach((change) => { if (change.type === "modified") { const newData = change.doc.data(); const oldData = projectsRef.current.find(p => p.id === change.doc.id); if (oldData) { const wasAllowed = (oldData.allowedMembers || []).includes(user.uid); const isAllowed = (newData.allowedMembers || []).includes(user.uid); if (!wasAllowed && isAllowed) { showDesktopNotification("Access Granted", `You have been added to the discussion for: ${newData.name}`); addInAppNotification(`Added to discussion: ${newData.name}`); } } } }); }
-            setProjects(fetchedProjects);
+        const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+            if (firebaseUser) {
+                try {
+                    const userDoc = await getDoc(doc(db, "users", firebaseUser.uid));
+                    if (userDoc.exists()) {
+                        const userData = userDoc.data();
+                        setUser({ uid: firebaseUser.uid, email: firebaseUser.email, role: userData.role || 'Developer', name: userData.name, tagline: userData.tagline, avatar: userData.avatar, teamId: userData.teamId });
+                    } else { setUser(null); }
+                } catch (error) { console.error(error); setUser(null); }
+            } else { setUser(null); }
+            setAuthLoading(false);
         });
-
-        const unsubFolders = onSnapshot(query(getCollectionRef('folders'), where('teamId', '==', user.teamId)), (s) => setFolders(s.docs.map(d => ({ id: d.id, ...d.data() }))));
-
-        const unsubTasks = onSnapshot(query(getCollectionRef('tasks'), where('teamId', '==', user.teamId)), (snapshot) => {
-            const fetchedTasks = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-            if (!isFirstLoad.current) {
-                snapshot.docChanges().forEach((change) => {
-                    const task = change.doc.data();
-                    if (change.type === "added" && task.assignedTo === user.uid && task.assignedBy !== user.uid) {
-                        const msg = `New Task: ${task.title}`;
-                        showDesktopNotification("New Assignment", msg);
-                        addInAppNotification(msg);
-                    }
-                    if (change.type === "modified" && task.status === 'Completed' && task.assignedTo !== user.uid) {
-                        const msg = `${task.assignedByName || 'Someone'} completed: ${task.title}`;
-                        showDesktopNotification("Task Completed", msg);
-                        addInAppNotification(msg);
-                    }
-                });
-            }
-            setTasks(fetchedTasks);
-        });
-
-        const startOfDay = new Date(activityDate); startOfDay.setHours(0, 0, 0, 0);
-        const endOfDay = new Date(activityDate); endOfDay.setHours(23, 59, 59, 999);
-        const unsubActivities = onSnapshot(query(getCollectionRef('activities'), where('teamId', '==', user.teamId), where('timestamp', '>=', startOfDay), where('timestamp', '<=', endOfDay), orderBy('timestamp', 'desc')), (snapshot) => {
-            const fetched = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-            if (!isFirstLoad.current) {
-                snapshot.docChanges().forEach((change) => {
-                    // FIXED: Removed invalid check for task.assignedTo here
-                    if (change.type === "added") {
-                        const act = change.doc.data();
-                        if (act.type?.includes("DELETE") || act.type?.includes("UPLOAD")) {
-                            showDesktopNotification("Team Activity", act.text);
-                        }
-                    }
-                });
-            }
-            setActivities(fetched);
-        });
-
-        const msgsRef = collection(db, ...MESSAGES_COLLECTION_PATH);
-        const unsubChat = onSnapshot(query(msgsRef, where("teamId", "==", user.teamId), orderBy("createdAt", "desc"), limit(1)), (snapshot) => { if (!isFirstLoad.current && !snapshot.empty) { const msg = snapshot.docs[0].data(); if (msg.senderId !== user.uid) { if (msg.text.includes(`@${user.name}`)) { const notifyText = `${msg.senderName} mentioned you: ${msg.text}`; showDesktopNotification("New Mention", notifyText); addInAppNotification(notifyText); } else { showDesktopNotification(`Message from ${msg.senderName}`, msg.text); } } } });
-
-        setTimeout(() => { isFirstLoad.current = false; }, 2000);
-        return () => { unsubProjects(); unsubFolders(); unsubTasks(); unsubActivities(); unsubChat(); };
-    }, [user?.teamId, activityDate]);
-
-    useEffect(() => {
-        if (!user?.teamId) return;
-        const msgsRef = collection(db, ...PROJECT_MESSAGES_COLLECTION_PATH);
-        const unsubProjChat = onSnapshot(query(msgsRef, orderBy('createdAt', 'desc'), limit(1)), (snapshot) => { if (!isFirstLoad.current && !snapshot.empty) { const msg = snapshot.docs[0].data(); const project = projectsRef.current.find(p => p.id === msg.projectId); if (project && msg.senderId !== user.uid) { const isTL = ['TL', 'Team Lead', 'Manager'].includes(user.role); const isAllowed = isTL || (project.allowedMembers || []).includes(user.uid); if (isAllowed) { const title = `Msg: ${project.name}`; const body = `${msg.senderName}: ${msg.text || '📎 Attachment'}`; showDesktopNotification(title, body); addInAppNotification(`${project.name}: ${msg.senderName} sent a message`); setUnreadProjectIds(prev => new Set(prev).add(project.id)); } } } });
-        return () => unsubProjChat();
-    }, [user?.teamId]);
-
-    useEffect(() => { const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => { if (firebaseUser) { try { const userDoc = await getDoc(doc(db, "users", firebaseUser.uid)); if (userDoc.exists()) { const userData = userDoc.data(); setUser({ uid: firebaseUser.uid, email: firebaseUser.email, role: userData.role || 'Developer', name: userData.name, tagline: userData.tagline, avatar: userData.avatar, teamId: userData.teamId }); } else { setUser(null); } } catch (error) { console.error("Error fetching user role:", error); setUser(null); } } else { setUser(null); } setAuthLoading(false); }); return () => unsubscribe(); }, []);
+        return () => unsubscribe();
+    }, []);
 
     const handleLogout = async () => { await signOut(auth); setUser(null); };
 
@@ -437,47 +332,15 @@ const MainApp = () => {
     if (!isElectron) {
         return (
             <div className="min-h-screen bg-[#050505] flex flex-col items-center justify-center text-center p-6 relative overflow-hidden selection:bg-blue-500/30">
-                <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none">
-                    <div className="absolute top-[-10%] left-1/2 -translate-x-1/2 w-[60%] h-[50%] bg-blue-600/20 rounded-full blur-[120px] animate-pulse" />
-                    <div className="absolute bottom-0 right-0 w-[40%] h-[40%] bg-purple-600/10 rounded-full blur-[100px]" />
-                </div>
-                <div className="relative z-10 mb-8 group">
-                    <div className="absolute -inset-1 bg-gradient-to-r from-blue-600 to-purple-600 rounded-3xl blur opacity-40 group-hover:opacity-75 transition duration-1000 group-hover:duration-200"></div>
-                    <div className="relative w-24 h-24 bg-[#0a0a0a] rounded-3xl flex items-center justify-center border border-white/10 shadow-2xl">
-                        <Box className="w-12 h-12 text-blue-500" />
-                    </div>
-                </div>
-                <h1 className="text-5xl md:text-7xl font-bold text-white mb-6 tracking-tight z-10 drop-shadow-2xl">
-                    Unity <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-purple-500">Work OS</span>
-                </h1>
-                <p className="text-gray-400 text-lg md:text-xl mb-12 max-w-xl leading-relaxed z-10 font-light">
-                    The centralized operating system for modern developers. <br className="hidden md:block" />
-                    Manage projects, tasks, and teams in one encrypted vault.
-                </p>
+                <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none"><div className="absolute top-[-10%] left-1/2 -translate-x-1/2 w-[60%] h-[50%] bg-blue-600/20 rounded-full blur-[120px] animate-pulse" /><div className="absolute bottom-0 right-0 w-[40%] h-[40%] bg-purple-600/10 rounded-full blur-[100px]" /></div>
+                <div className="relative z-10 mb-8 group"><div className="absolute -inset-1 bg-gradient-to-r from-blue-600 to-purple-600 rounded-3xl blur opacity-40 group-hover:opacity-75 transition duration-1000 group-hover:duration-200"></div><div className="relative w-24 h-24 bg-[#0a0a0a] rounded-3xl flex items-center justify-center border border-white/10 shadow-2xl"><Box className="w-12 h-12 text-blue-500" /></div></div>
+                <h1 className="text-5xl md:text-7xl font-bold text-white mb-6 tracking-tight z-10 drop-shadow-2xl">Unity <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-purple-500">Work OS</span></h1>
+                <p className="text-gray-400 text-lg md:text-xl mb-12 max-w-xl leading-relaxed z-10 font-light">The centralized operating system for modern developers.<br className="hidden md:block" />Manage projects, tasks, and teams in one encrypted vault.</p>
                 <div className="flex flex-col sm:flex-row gap-5 w-full max-w-lg z-10">
-                    <a
-                        href={DOWNLOAD_LINK}
-                        className="group relative flex-1 flex items-center justify-center gap-3 px-8 py-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white rounded-2xl font-bold transition-all duration-300 shadow-[0_0_20px_rgba(37,99,235,0.3)] hover:shadow-[0_0_40px_rgba(37,99,235,0.5)] hover:-translate-y-1 overflow-hidden"
-                    >
-                        <div className="absolute inset-0 bg-white/20 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-700 ease-in-out skew-x-12" />
-                        <Monitor size={22} className="shrink-0 group-hover:scale-110 transition-transform" />
-                        <span className="whitespace-nowrap tracking-wide">Download for Windows</span>
-                    </a>
-                    <Link
-                        to="/docs"
-                        className="group flex-1 flex items-center justify-center gap-3 px-8 py-4 bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 backdrop-blur-xl text-gray-300 hover:text-white rounded-2xl font-semibold transition-all duration-300 hover:-translate-y-1"
-                    >
-                        <Book size={20} className="text-gray-500 group-hover:text-blue-400 transition-colors shrink-0" />
-                        <span className="whitespace-nowrap">Read Documentation</span>
-                    </Link>
+                    <a href={DOWNLOAD_LINK} className="group relative flex-1 flex items-center justify-center gap-3 px-8 py-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white rounded-2xl font-bold transition-all duration-300 shadow-[0_0_20px_rgba(37,99,235,0.3)] hover:shadow-[0_0_40px_rgba(37,99,235,0.5)] hover:-translate-y-1 overflow-hidden"><div className="absolute inset-0 bg-white/20 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-700 ease-in-out skew-x-12" /><Monitor size={22} className="shrink-0 group-hover:scale-110 transition-transform" /><span className="whitespace-nowrap tracking-wide">Download for Windows</span></a>
+                    <Link to="/docs" className="group flex-1 flex items-center justify-center gap-3 px-8 py-4 bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 backdrop-blur-xl text-gray-300 hover:text-white rounded-2xl font-semibold transition-all duration-300 hover:-translate-y-1"><Clipboard size={20} className="text-gray-500 group-hover:text-blue-400 transition-colors shrink-0" /><span className="whitespace-nowrap">Read Documentation</span></Link>
                 </div>
-                <div className="mt-10 flex flex-col items-center gap-2 z-10 opacity-60">
-                    <div className="flex items-center gap-2 text-xs text-gray-500 font-mono bg-white/5 px-3 py-1 rounded-full border border-white/5">
-                        <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
-                        Latest Release: v1.0.3
-                    </div>
-                    <p className="text-[10px] text-gray-600">Secure • Encrypted • Fast</p>
-                </div>
+                <div className="mt-10 flex flex-col items-center gap-2 z-10 opacity-60"><div className="flex items-center gap-2 text-xs text-gray-500 font-mono bg-white/5 px-3 py-1 rounded-full border border-white/5"><span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>Latest Release: v{APP_VERSION}</div><p className="text-[10px] text-gray-600">Secure • Encrypted • Fast</p></div>
             </div>
         );
     }
@@ -488,15 +351,16 @@ const MainApp = () => {
     return (
         <>
             <Toaster position="bottom-right" toastOptions={{ style: { background: '#333', color: '#fff', border: '1px solid #444' } }} />
-            <Dashboard user={user} handleLogout={handleLogout} onUpdateUser={setUser} localProjects={projects} localFolders={folders} localTasks={tasks} localActivities={activities} activityDate={activityDate} setActivityDate={setActivityDate} inAppNotifications={inAppNotifications} clearNotifications={() => setInAppNotifications([])} />
+            <DataProvider user={user}>
+                <AppLayout user={user} handleLogout={handleLogout} onUpdateUser={setUser} />
+            </DataProvider>
         </>
     );
 };
 
-// --- ROUTER WRAPPER ---
 export default function AppWrapper() {
     return (
-        <HashRouter> {/* 👈 HashRouter ensures it works on Electron .exe */}
+        <HashRouter>
             <Routes>
                 <Route path="/docs" element={<DocsView />} />
                 <Route path="/*" element={<MainApp />} />

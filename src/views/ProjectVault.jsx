@@ -6,7 +6,7 @@ import {
     MessageSquare, Users, ShieldCheck, CreditCard, Tag
 } from 'lucide-react';
 import InputField from "../components/InputField";
-import ProjectChatArea from "../components/ProjectChatArea";
+import GenericChat from "../components/GenericChat";
 import toast from 'react-hot-toast';
 import { collection, query, where, getDocs } from "firebase/firestore";
 import { db } from "../firebase/config";
@@ -36,6 +36,7 @@ const ProjectVault = ({ project, folders, onUpdate, onClose, userRole, userName,
     // --- TEAM MEMBERS STATE ---
     const [teamMembers, setTeamMembers] = useState([]);
     const [expandedNetworkId, setExpandedNetworkId] = useState(null);
+    const [isAccessPanelOpen, setIsAccessPanelOpen] = useState(false); // Collapsible State
 
     const formDataRef = useRef(formData);
     const isDirtyRef = useRef(false);
@@ -377,7 +378,7 @@ const ProjectVault = ({ project, folders, onUpdate, onClose, userRole, userName,
             </div>
 
             <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
-                <div className="max-w-4xl mx-auto">
+                <div className="max-w-4xl mx-auto h-full">
                     {activeTab === 'general' && (
                         <div className="bg-[#151518] border border-white/5 p-8 rounded-2xl shadow-xl space-y-6 animate-fade-in relative">
                             <InputField label="Project Name" value={formData.name} onChange={(v) => handleChange('name', v)} />
@@ -391,37 +392,66 @@ const ProjectVault = ({ project, folders, onUpdate, onClose, userRole, userName,
                     )}
 
                     {activeTab === 'discussion' && canAccessDiscussion && (
-                        <div className="animate-fade-in space-y-6">
+                        <div className="animate-fade-in flex flex-col h-full min-h-[500px]">
                             {isTL && (
-                                <div className="bg-[#151518] border border-white/5 p-6 rounded-2xl shadow-xl">
-                                    <h3 className="text-sm font-bold text-white mb-4 flex items-center gap-2">
-                                        <ShieldCheck size={16} className="text-emerald-500" /> Manage Discussion Access
-                                    </h3>
-                                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                                        {teamMembers.filter(m => m.id !== user.uid).map(member => {
-                                            const isSelected = (formData.allowedMembers || []).includes(member.id);
-                                            return (
-                                                <button
-                                                    key={member.id}
-                                                    onClick={() => toggleMemberAccess(member.id)}
-                                                    className={`flex items-center gap-3 p-3 rounded-xl border text-left transition-all ${isSelected ? 'bg-blue-600/10 border-blue-500/50 text-white' : 'bg-[#0a0a0a] border-white/10 text-gray-500 hover:border-white/20'}`}
-                                                >
-                                                    <div className={`w-4 h-4 rounded border flex items-center justify-center ${isSelected ? 'bg-blue-500 border-blue-500' : 'border-gray-600'}`}>
-                                                        {isSelected && <Check size={10} className="text-white" />}
-                                                    </div>
-                                                    <div className="min-w-0">
-                                                        <div className="text-xs font-bold truncate">{member.name}</div>
-                                                        <div className="text-[9px] uppercase">{member.role}</div>
-                                                    </div>
-                                                </button>
-                                            );
-                                        })}
-                                        {teamMembers.length <= 1 && <p className="text-xs text-gray-600 col-span-3">No other team members found.</p>}
-                                    </div>
-                                    <p className="text-[10px] text-gray-500 mt-4 italic">* Selected members will see this Discussion tab.</p>
+                                <div className="shrink-0 mb-2">
+                                    <button
+                                        onClick={() => setIsAccessPanelOpen(!isAccessPanelOpen)}
+                                        className={`
+                                            w-full flex items-center justify-between px-4 py-3 rounded-xl border transition-all
+                                            ${isAccessPanelOpen
+                                                ? 'bg-[#151518] border-white/10 text-white'
+                                                : 'bg-[#151518]/50 border-white/5 text-gray-400 hover:text-white hover:bg-[#151518]'
+                                            }
+                                        `}
+                                    >
+                                        <div className="flex items-center gap-2 text-sm font-bold">
+                                            <ShieldCheck size={16} className={isAccessPanelOpen ? "text-emerald-500" : "text-gray-500"} />
+                                            <span>Manage Member Access</span>
+                                        </div>
+                                        {isAccessPanelOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                                    </button>
+
+                                    {isAccessPanelOpen && (
+                                        <div className="bg-[#151518] border-x border-b border-white/10 p-4 rounded-b-xl shadow-xl mb-2 animate-slide-down">
+                                            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                                                {teamMembers.filter(m => m.id !== user.uid).map(member => {
+                                                    const isSelected = (formData.allowedMembers || []).includes(member.id);
+                                                    return (
+                                                        <button
+                                                            key={member.id}
+                                                            onClick={() => toggleMemberAccess(member.id)}
+                                                            className={`flex items-center gap-3 p-3 rounded-xl border text-left transition-all ${isSelected ? 'bg-blue-600/10 border-blue-500/50 text-white' : 'bg-[#0a0a0a] border-white/10 text-gray-500 hover:border-white/20'}`}
+                                                        >
+                                                            <div className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${isSelected ? 'bg-blue-500 border-blue-500' : 'border-gray-600'}`}>
+                                                                {isSelected && <Check size={10} className="text-white" />}
+                                                            </div>
+                                                            <div className="min-w-0">
+                                                                <div className="text-xs font-bold truncate">{member.name}</div>
+                                                                <div className="text-[9px] uppercase">{member.role}</div>
+                                                            </div>
+                                                        </button>
+                                                    );
+                                                })}
+                                                {teamMembers.length <= 1 && <p className="text-xs text-gray-600 col-span-3">No other team members found.</p>}
+                                            </div>
+                                            <p className="text-[10px] text-gray-500 mt-3 italic text-right">* Changes apply immediately.</p>
+                                        </div>
+                                    )}
                                 </div>
                             )}
-                            <ProjectChatArea project={project} currentUser={user} />
+
+                            {/* Chat Wrapper - Flex-1 ensures it fills the remaining height */}
+                            <div className="flex-1 min-h-0 overflow-hidden rounded-2xl border border-white/5 bg-[#0a0a0a]">
+                                <GenericChat
+                                    context="project"
+                                    collectionPath={['artifacts', 'unity-work-os', 'public', 'data', 'project_messages']}
+                                    queryField="projectId"
+                                    queryValue={project.id}
+                                    currentUser={user}
+                                    placeholder="Discuss this project... (Drop File)"
+                                />
+                            </div>
                         </div>
                     )}
 

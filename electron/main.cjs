@@ -1,9 +1,31 @@
-﻿const { app, BrowserWindow, Tray, Menu, dialog } = require('electron');
+﻿const { app, BrowserWindow, Tray, Menu, dialog, ipcMain } = require('electron');
 const path = require('path');
-const { autoUpdater } = require('electron-updater'); // 👈 Import kiya
+const { autoUpdater } = require('electron-updater');
 
 let mainWindow;
 let tray;
+
+// --- 🔒 SINGLE INSTANCE LOCK (Prevents Double Icon) ---
+const gotTheLock = app.requestSingleInstanceLock();
+
+if (!gotTheLock) {
+    app.quit();
+} else {
+    // Agar koi doosri baar app kholne ki koshish kare
+    app.on('second-instance', (event, commandLine, workingDirectory) => {
+        if (mainWindow) {
+            if (mainWindow.isMinimized()) mainWindow.restore();
+            if (!mainWindow.isVisible()) mainWindow.show();
+            mainWindow.focus();
+        }
+    });
+
+    // App Ready hone par hi chalayen
+    app.whenReady().then(() => {
+        createWindow();
+        createTray();
+    });
+}
 
 function createWindow() {
     mainWindow = new BrowserWindow({
@@ -15,10 +37,11 @@ function createWindow() {
         title: 'Unity Work OS',
         autoHideMenuBar: true,
         icon: path.join(__dirname, '../public/icon.ico'),
-        show: false,
+        show: false, // Pehlay hidden rakhein
         webPreferences: {
             contextIsolation: true,
-            nodeIntegration: false
+            nodeIntegration: false,
+            //preload: path.join(__dirname, 'preload.js') // Optional
         }
     });
 
@@ -32,24 +55,67 @@ function createWindow() {
 
     mainWindow.once('ready-to-show', () => {
         mainWindow.show();
-
-        // 🚀 APP START HOTAY HI UPDATE CHECK KARO (Sirf Production mein)
-        if (!startUrl) {
-            autoUpdater.checkForUpdatesAndNotify();
-        }
+        if (!startUrl) autoUpdater.checkForUpdatesAndNotify();
     });
 
+    // --- CLOSE BEHAVIOR (Minimize to Tray) ---
     mainWindow.on('close', (e) => {
         if (!app.isQuiting) {
             e.preventDefault();
             mainWindow.hide();
+            return false;
         }
     });
 }
 
-// --- AUTO UPDATER EVENTS ---
+// --- TRAY LOGIC (Fixed) ---
+function createTray() {
+    tray = new Tray(path.join(__dirname, '../public/icon.ico'));
+
+    const contextMenu = Menu.buildFromTemplate([
+        {
+            label: 'Open Unity Work OS',
+            click: () => {
+                mainWindow.show();
+                if (mainWindow.isMinimized()) mainWindow.restore();
+            }
+        },
+        {
+            label: 'Quit',
+            click: () => {
+                app.isQuiting = true;
+                app.quit();
+            }
+        }
+    ]);
+
+    tray.setToolTip('Unity Work OS');
+    tray.setContextMenu(contextMenu);
+
+    // ✅ FIX: Single Click par bhi open ho
+    tray.on('click', () => {
+        if (mainWindow.isVisible()) {
+            mainWindow.hide();
+        } else {
+            mainWindow.show();
+            if (mainWindow.isMinimized()) mainWindow.restore();
+            mainWindow.focus();
+        }
+    });
+
+    // Double click support
+    tray.on('double-click', () => {
+        mainWindow.show();
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.focus();
+    });
+}
+
+// --- AUTO UPDATER ---
+autoUpdater.autoDownload = true;
+autoUpdater.autoInstallOnAppQuit = true;
+
 autoUpdater.on('update-available', () => {
-    // Jab update mil jaye
     dialog.showMessageBox(mainWindow, {
         type: 'info',
         title: 'Update Available',
@@ -59,35 +125,24 @@ autoUpdater.on('update-available', () => {
 });
 
 autoUpdater.on('update-downloaded', () => {
-    // Jab download ho jaye -> Install karo
     dialog.showMessageBox(mainWindow, {
         type: 'question',
         title: 'Update Ready',
         message: 'New version downloaded. Restart now to install?',
-        buttons: ['Yes', 'Later']
+        buttons: ['Restart Now', 'Later']
     }).then((result) => {
         if (result.response === 0) {
-            autoUpdater.quitAndInstall();
+            // Force Install
+            autoUpdater.quitAndInstall(false, true);
         }
     });
 });
 
-function createTray() {
-    tray = new Tray(path.join(__dirname, '../public/icon.ico'));
-    const contextMenu = Menu.buildFromTemplate([
-        { label: 'Open Unity Work OS', click: () => mainWindow.show() },
-        { label: 'Quit', click: () => { app.isQuiting = true; app.quit(); } }
-    ]);
-    tray.setToolTip('Unity Work OS');
-    tray.setContextMenu(contextMenu);
-    tray.on('double-click', () => mainWindow.show());
-}
-
-app.whenReady().then(() => {
-    createWindow();
-    createTray();
+autoUpdater.on('error', (message) => {
+    console.error('Update Error:', message);
 });
 
+// --- GLOBAL SETTINGS ---
 app.setLoginItemSettings({ openAtLogin: true });
 
 app.on('window-all-closed', () => {

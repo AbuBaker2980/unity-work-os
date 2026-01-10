@@ -10,7 +10,7 @@ import { formatTime, getTodayString } from "../utils/dateUtils";
 import { doc, onSnapshot, setDoc } from "firebase/firestore";
 import { db } from "../firebase/config";
 import AnnouncementModal from "../components/AnnouncementModal";
-
+import { APP_VERSION } from "../constants";
 const APP_ID = "unity-work-os";
 
 const DashboardView = ({
@@ -364,7 +364,7 @@ const DashboardView = ({
                 <div className="flex items-center gap-4">
                     <div className="text-[10px] text-gray-600 font-mono flex items-center gap-2">
                         <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.8)]"></div>
-                        <span>UNITY CORE v1.0.3</span>
+                        <span>UNITY CORE v{APP_VERSION}</span>
                     </div>
                     {/* 👇 ✅ ADDED DOCS LINK HERE */}
                     <span className="text-gray-800">|</span>
