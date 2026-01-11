@@ -1,8 +1,10 @@
 ﻿import React, { createContext, useContext, useState, useEffect, useRef } from "react";
-import { collection, query, where, onSnapshot, addDoc, serverTimestamp, orderBy, limit } from "firebase/firestore";
+import { collection, query, where, onSnapshot, addDoc, serverTimestamp, orderBy, limit, doc, updateDoc, increment, getDoc, setDoc } from "firebase/firestore";
 import { db } from "../firebase/config";
-import { getTodayString, toDateObj } from "../utils/dateUtils"; // toDateObj import zaroori hai
+import { getTodayString, toDateObj } from "../utils/dateUtils";
 import { playSound } from "../utils/soundUtils";
+import { calculateLevelFromXP, getRank } from "../utils/gamificationUtils";
+import toast from "react-hot-toast";
 
 const DataContext = createContext();
 
@@ -16,13 +18,110 @@ export const DataProvider = ({ children, user }) => {
     const [inAppNotifications, setInAppNotifications] = useState([]);
     const [activityDate, setActivityDate] = useState(getTodayString());
 
-    // ✅ FIX: Capture the exact time App started
-    // Notifications will ONLY show for items created AFTER this time.
     const appBootTime = useRef(new Date());
-
-    // Notification Helpers
     const projectsRef = useRef([]);
     useEffect(() => { projectsRef.current = projects; }, [projects]);
+
+    // --- 🌟 GAMIFICATION LOGIC ---
+
+    // 1. Daily Login Reward System
+    useEffect(() => {
+        if (!user?.uid) return;
+
+        const checkDailyLogin = async () => {
+            const todayStr = getTodayString();
+            const userRef = doc(db, "users", user.uid);
+
+            try {
+                const userSnap = await getDoc(userRef);
+                if (!userSnap.exists()) return;
+
+                const userData = userSnap.data();
+                const lastLogin = userData.lastLoginDate;
+
+                // If first login of the day
+                if (lastLogin !== todayStr) {
+                    // Reset Daily Counters & Award Login XP
+                    await updateDoc(userRef, {
+                        lastLoginDate: todayStr,
+                        dailyChatXP: 0, // Reset chat limit
+                        xp: increment(10)
+                    });
+
+                    toast.success("☀️ Daily Login Bonus: +10 XP!", {
+                        icon: '🎁',
+                        style: { background: '#333', color: '#FFD700', border: '1px solid #FFD700' }
+                    });
+                    playSound('success');
+                }
+            } catch (error) {
+                console.error("Daily Login Error:", error);
+            }
+        };
+
+        checkDailyLogin();
+    }, [user?.uid]);
+
+    // 2. Chat XP Handler (Max 50 XP per day)
+    const awardChatXP = async () => {
+        if (!user?.uid) return;
+        const userRef = doc(db, "users", user.uid);
+
+        try {
+            const userSnap = await getDoc(userRef);
+            const userData = userSnap.data();
+            const currentDaily = userData.dailyChatXP || 0;
+
+            if (currentDaily < 50) {
+                await updateDoc(userRef, {
+                    dailyChatXP: increment(5),
+                    xp: increment(5)
+                });
+                // Small toast for chat XP (optional, maybe too spammy?)
+                // toast.success("+5 XP", { position: 'bottom-left', duration: 1000, icon: '💬' });
+            }
+        } catch (error) {
+            console.error(error);
+        }
+    };
+
+    // 3. Universal Add XP
+    const addXP = async (amount) => {
+        if (!user?.uid) return;
+        const userRef = doc(db, "users", user.uid);
+
+        try {
+            const userSnap = await getDoc(userRef);
+            if (!userSnap.exists()) return;
+
+            const userData = userSnap.data();
+            const currentTotalXP = (userData.xp || 0) + amount;
+
+            const { level: newLevel } = calculateLevelFromXP(currentTotalXP);
+            const oldLevel = userData.level || 1;
+
+            await updateDoc(userRef, {
+                xp: increment(amount),
+                level: newLevel
+            });
+
+            if (newLevel > oldLevel) {
+                const newRank = getRank(newLevel);
+                playSound('success');
+                toast.success(`🎉 LEVEL UP! You are now Lvl ${newLevel} (${newRank.name})`, {
+                    duration: 5000,
+                    icon: '🆙',
+                    style: { borderRadius: '10px', background: '#333', color: '#fff', border: '2px solid #ffd700' }
+                });
+                logActivity(`${user.name} leveled up to ${newRank.name} (Lvl ${newLevel})!`, 'LEVEL_UP');
+            } else {
+                toast(`+${amount} XP`, { icon: '✨', style: { borderRadius: '10px', background: '#333', color: '#fff' } });
+            }
+
+        } catch (error) {
+            console.error("XP Error:", error);
+        }
+    };
 
     const logActivity = async (text, type, meta = {}) => {
         if (!user?.teamId) return;
@@ -48,12 +147,10 @@ export const DataProvider = ({ children, user }) => {
         playSound('notification');
     };
 
-    // ✅ Helper to check if item is NEW (created after app open)
     const isNewItem = (timestamp) => {
         if (!timestamp) return false;
-        const itemDate = toDateObj(timestamp); // Using utils to safely parse
+        const itemDate = toDateObj(timestamp);
         if (!itemDate) return false;
-        // Check if item time is GREATER than App Boot Time
         return itemDate > appBootTime.current;
     };
 
@@ -64,21 +161,15 @@ export const DataProvider = ({ children, user }) => {
 
         const baseRef = (col) => collection(db, 'artifacts', 'unity-work-os', 'public', 'data', col);
 
-        // 1. Projects
         const unsubProjects = onSnapshot(query(baseRef('projects'), where('teamId', '==', user.teamId)), (s) => {
             const fetched = s.docs.map(d => ({ id: d.id, ...d.data() }));
-
             s.docChanges().forEach((change) => {
                 if (change.type === "modified") {
                     const newData = change.doc.data();
                     const oldData = projectsRef.current.find(p => p.id === change.doc.id);
-
-                    // Logic: Only notify if I was JUST added to allowedMembers
                     if (oldData) {
                         const wasAllowed = (oldData.allowedMembers || []).includes(user.uid);
                         const isAllowed = (newData.allowedMembers || []).includes(user.uid);
-
-                        // ✅ FIX: Check if modification happened NOW
                         if (!wasAllowed && isAllowed && isNewItem(newData.lastUpdated || new Date())) {
                             showDesktopNotification("Access Granted", `Added to discussion: ${newData.name}`);
                             addLocalNotification(`Added to discussion: ${newData.name}`);
@@ -89,20 +180,14 @@ export const DataProvider = ({ children, user }) => {
             setProjects(fetched);
         });
 
-        // 2. Folders
         const unsubFolders = onSnapshot(query(baseRef('folders'), where('teamId', '==', user.teamId)), (s) => {
             setFolders(s.docs.map(d => ({ id: d.id, ...d.data() })));
         });
 
-        // 3. Tasks
         const unsubTasks = onSnapshot(query(baseRef('tasks'), where('teamId', '==', user.teamId)), (snapshot) => {
             const fetched = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-
             snapshot.docChanges().forEach((change) => {
                 const t = change.doc.data();
-
-                // ✅ FIX: Strict Timestamp Check
-                // Task must be created/completed AFTER app started
                 if (change.type === "added" && t.assignedTo === user.uid && t.assignedBy !== user.uid) {
                     if (isNewItem(t.startTime)) {
                         showDesktopNotification("New Assignment", `Task: ${t.title}`);
@@ -119,7 +204,6 @@ export const DataProvider = ({ children, user }) => {
             setTasks(fetched);
         });
 
-        // 4. Activities (Filtered by Date)
         const startOfDay = new Date(activityDate); startOfDay.setHours(0, 0, 0, 0);
         const endOfDay = new Date(activityDate); endOfDay.setHours(23, 59, 59, 999);
 
@@ -130,27 +214,12 @@ export const DataProvider = ({ children, user }) => {
             orderBy('timestamp', 'desc')
         ), (snapshot) => {
             const fetched = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-
-            // ✅ OPTIONAL: Notify on critical activities (Delete/Upload) happening NOW
-            snapshot.docChanges().forEach((change) => {
-                const act = change.doc.data();
-                if (change.type === "added" && isNewItem(act.timestamp)) {
-                    if (act.type.includes("DELETE") || act.type.includes("UPLOAD")) {
-                        // Only internal notification, no desktop popup to avoid spam
-                        // console.log("New activity:", act.text); 
-                    }
-                }
-            });
-
             setActivities(fetched);
         });
 
-        // 5. Global Chat Notification
         const unsubChat = onSnapshot(query(baseRef('messages'), where("teamId", "==", user.teamId), orderBy("createdAt", "desc"), limit(1)), (snapshot) => {
             if (!snapshot.empty) {
                 const msg = snapshot.docs[0].data();
-
-                // ✅ FIX: Strict Time Check for Messages
                 if (msg.senderId !== user.uid && isNewItem(msg.createdAt)) {
                     if (msg.text.includes(`@${user.name}`)) {
                         showDesktopNotification("New Mention", `${msg.senderName}: ${msg.text}`);
@@ -172,7 +241,7 @@ export const DataProvider = ({ children, user }) => {
             projects, folders, tasks, activities,
             inAppNotifications, clearNotifications,
             activityDate, setActivityDate,
-            logActivity
+            logActivity, addXP, awardChatXP // 👈 Added awardChatXP
         }}>
             {children}
         </DataContext.Provider>

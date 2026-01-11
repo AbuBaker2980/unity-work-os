@@ -9,6 +9,7 @@ import {
 import { db } from "../firebase/config";
 import { formatDate, getDuration, getTodayString } from "../utils/dateUtils";
 import { playSound } from "../utils/soundUtils";
+import { useData } from "../contexts/DataContext"; // 👈 Context Import
 import toast from 'react-hot-toast';
 
 // --- CLOUDINARY CONFIG ---
@@ -16,6 +17,8 @@ const CLOUD_NAME = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME;
 const UPLOAD_PRESET = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET;
 
 const TasksView = ({ projects, tasks, onAddTask, onUpdateTask, onDeleteTask, logActivity, user }) => {
+    const { addXP } = useData(); // 👈 Get addXP from Context
+
     const [viewMode, setViewMode] = useState('board');
     const [selectedDate, setSelectedDate] = useState(getTodayString());
 
@@ -39,8 +42,6 @@ const TasksView = ({ projects, tasks, onAddTask, onUpdateTask, onDeleteTask, log
     // --- ROLE HELPERS ---
     const isQA = user.role === 'QA';
     const isLead = ['TL', 'Team Lead', 'Manager'].includes(user.role);
-
-    // 🔒 Permission to Assign Tasks to Others
     const canAssignOthers = isLead || isQA;
 
     useEffect(() => {
@@ -151,10 +152,17 @@ const TasksView = ({ projects, tasks, onAddTask, onUpdateTask, onDeleteTask, log
     const handleRequestReview = (task) => updateStatus(task, 'In Review', `${user.name} requested review for "${task.title}"`, 'CODE_REVIEW');
     const handleApprove = (task) => updateStatus(task, 'Testing', `${user.name} approved "${task.title}". Moved to QA.`, 'REVIEW_APPROVED');
     const handleReject = (task) => updateStatus(task, 'In Progress', `${user.name} requested changes on "${task.title}"`, 'FEEDBACK_GIVEN');
+
+    // 🔥 QA PASS TEST (AWARDS XP)
     const handlePassTest = (task) => {
         updateStatus(task, 'Completed', `✅ QA ${user.name} Verified "${task.title}"`, 'QA_VERIFIED');
         playSound('success');
+
+        // Award XP to QA
+        addXP(50);
+        // Note: Assignee XP logic can be added here if we fetch assignee user doc, but let's keep it simple for now (QA gets points for work)
     };
+
     const handleFailTest = (task) => updateStatus(task, 'In Progress', `❌ QA ${user.name} Rejected "${task.title}"`, 'BUG_FOUND');
 
     const handleDelete = (id) => {
@@ -172,7 +180,15 @@ const TasksView = ({ projects, tasks, onAddTask, onUpdateTask, onDeleteTask, log
         if (!draggedTaskId) return;
         const t = tasks.find(x => x.id === draggedTaskId);
         if (t && t.status !== status && checkPermission(t, 'request_review')) {
-            onUpdateTask(t.id, { status });
+            // For simple Drag-to-complete (if permitted)
+            if (status === 'Completed') {
+                // Award XP for drag completion
+                updateStatus(t, 'Completed', `${user.name} completed "${t.title}"`, 'TASK_COMPLETED');
+                playSound('success');
+                addXP(50); // 🔥 +50 XP
+            } else {
+                onUpdateTask(t.id, { status });
+            }
         } else {
             toast.error("Please use action buttons for this transition.");
         }
@@ -365,10 +381,8 @@ const TasksView = ({ projects, tasks, onAddTask, onUpdateTask, onDeleteTask, log
                                 <div><label className="text-[10px] font-bold text-gray-500 uppercase">Type</label><select value={newTask.type} onChange={(e) => setNewTask({ ...newTask, type: e.target.value })} className="w-full bg-[#0a0a0a] border border-white/10 p-2.5 rounded-xl text-sm text-white outline-none mt-1"><option>Feature</option><option>Bug</option><option>Art</option><option>Testing</option><option>ASO</option></select></div>
                             </div>
 
-                            {/* Project Select */}
                             <div><label className="text-[10px] font-bold text-gray-500 uppercase">Project</label><select value={newTask.projectId} onChange={(e) => setNewTask({ ...newTask, projectId: e.target.value })} className="w-full bg-[#0a0a0a] border border-white/10 p-2.5 rounded-xl text-sm text-white outline-none mt-1" required><option value="">Select Project...</option>{projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div>
 
-                            {/* Title & Desc */}
                             <div><label className="text-[10px] font-bold text-gray-500 uppercase">Title</label><input type="text" value={newTask.title} onChange={(e) => setNewTask({ ...newTask, title: e.target.value })} className="w-full bg-[#0a0a0a] border border-white/10 p-3 rounded-xl text-sm text-white outline-none mt-1" placeholder="Task title..." required /></div>
                             <div><label className="text-[10px] font-bold text-gray-500 uppercase">Details</label><textarea rows={3} value={newTask.description} onChange={(e) => setNewTask({ ...newTask, description: e.target.value })} className="w-full bg-[#0a0a0a] border border-white/10 p-3 rounded-xl text-sm text-white outline-none mt-1" placeholder="Description..." /></div>
 
@@ -391,7 +405,6 @@ const TasksView = ({ projects, tasks, onAddTask, onUpdateTask, onDeleteTask, log
                                 {!canAssignOthers && <p className="text-[9px] text-gray-600 mt-1 italic">*Only Leads & QA can assign tasks to others.</p>}
                             </div>
 
-                            {/* Proof Upload */}
                             <div onClick={() => fileInputRef.current?.click()} className={`border-2 border-dashed rounded-xl p-4 text-center cursor-pointer transition-all flex flex-col items-center justify-center h-28 ${proofPreview ? 'border-blue-500 bg-blue-900/10' : 'border-white/10 bg-[#0a0a0a] hover:border-blue-500/50'}`}>
                                 <input type="file" ref={fileInputRef} onChange={handleFileSelect} accept="image/*" className="hidden" />
                                 {proofPreview ? (

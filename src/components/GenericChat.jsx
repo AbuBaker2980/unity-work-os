@@ -9,6 +9,8 @@ import {
 } from "lucide-react";
 import { db } from "../firebase/config";
 import { formatTime } from "../utils/dateUtils";
+import { getRank } from "../utils/gamificationUtils";
+import { useData } from "../contexts/DataContext"; // 👈 Context for XP
 import toast from 'react-hot-toast';
 
 const CLOUD_NAME = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME;
@@ -34,6 +36,8 @@ const ChatSkeleton = () => (
 const GenericChat = ({
     collectionPath, queryField, queryValue, context, currentUser, members = [], placeholder = "Message...", filterText = ""
 }) => {
+    const { awardChatXP } = useData(); // 👈 XP Function
+
     const [messages, setMessages] = useState([]);
     const [loading, setLoading] = useState(true);
     const [newMessage, setNewMessage] = useState("");
@@ -58,7 +62,7 @@ const GenericChat = ({
     const [isPollModalOpen, setIsPollModalOpen] = useState(false);
     const [pollQuestion, setPollQuestion] = useState("");
     const [pollOptions, setPollOptions] = useState(["", ""]);
-    const [pollDuration, setPollDuration] = useState(24); // 👈 Default Number
+    const [pollDuration, setPollDuration] = useState(24);
 
     const messagesEndRef = useRef(null);
     const chatContainerRef = useRef(null);
@@ -196,6 +200,10 @@ const GenericChat = ({
                 createdAt: serverTimestamp(),
                 teamId: context === "team" ? currentUser.teamId : null
             });
+
+            // 🔥 Award XP for Voice Note
+            if (context === "team" && awardChatXP) awardChatXP();
+
             setTimeout(scrollToBottom, 100);
         } catch (error) { toast.error("Failed to send audio"); } finally { setSending(false); }
     };
@@ -206,13 +214,11 @@ const GenericChat = ({
         const validOptions = pollOptions.filter(o => o.trim() !== "");
         if (validOptions.length < 2) return toast.error("At least 2 options required");
 
-        // Duration Validation
         const hours = parseInt(pollDuration);
         if (!hours || hours <= 0) return toast.error("Invalid duration");
 
         setIsPollModalOpen(false);
 
-        // Calculate Expiration
         const expiresAt = new Date();
         expiresAt.setHours(expiresAt.getHours() + hours);
 
@@ -234,6 +240,9 @@ const GenericChat = ({
             teamId: context === "team" ? currentUser.teamId : null
         });
 
+        // 🔥 Award XP for Poll Creation
+        if (context === "team" && awardChatXP) awardChatXP();
+
         setPollQuestion("");
         setPollOptions(["", ""]);
         setPollDuration(24);
@@ -241,7 +250,6 @@ const GenericChat = ({
     };
 
     const handleVote = async (msgId, pollData, optionId) => {
-        // Check Expiry
         if (pollData.expiresAt && new Date() > new Date(pollData.expiresAt)) {
             return toast.error("Poll has ended.");
         }
@@ -265,8 +273,21 @@ const GenericChat = ({
         setSending(true);
         try {
             let attachmentData = null; if (selectedFile) attachmentData = await uploadToCloudinary(selectedFile);
+
+            const myRank = getRank(currentUser.level || 1);
+
             const msgData = {
-                text: newMessage, attachment: attachmentData, senderId: currentUser.uid, senderName: currentUser.name || "User", senderAvatar: currentUser.avatar || null, createdAt: serverTimestamp(),
+                text: newMessage, attachment: attachmentData,
+                senderId: currentUser.uid,
+                senderName: currentUser.name || "User",
+                senderAvatar: currentUser.avatar || null,
+
+                // 🎮 Gamification Fields
+                senderLevel: currentUser.level || 1,
+                senderRank: myRank.name,
+                senderTitle: currentUser.activeTitle || "",
+
+                createdAt: serverTimestamp(),
                 replyTo: replyingTo ? { id: replyingTo.id, text: replyingTo.text, sender: replyingTo.senderName } : null
             };
             if (context === "team") { msgData.teamId = currentUser.teamId; msgData.senderRole = currentUser.role; }
@@ -274,6 +295,10 @@ const GenericChat = ({
             else if (context === "direct") { msgData.participants = [currentUser.uid, queryValue]; }
 
             await addDoc(collection(db, ...collectionPath), msgData);
+
+            // 🔥 Award XP for Chat Message (Max 50/day)
+            if (context === "team" && awardChatXP) awardChatXP();
+
             setNewMessage(""); setSelectedFile(null); setFilePreview(null); setReplyingTo(null);
             setTimeout(scrollToBottom, 100);
         } catch (error) { toast.error("Failed"); } finally { setSending(false); }
@@ -283,15 +308,8 @@ const GenericChat = ({
     const renderAttachment = (msg) => {
         if (!msg.attachment) return null;
         const { url, type, name } = msg.attachment;
-
         if (type === 'image') return <div className="mt-2 rounded-lg overflow-hidden max-w-xs border border-white/10"><a href={url} target="_blank"><img src={url} className="w-full object-cover" /></a></div>;
-
-        if (type === 'audio') return (
-            <div className="mt-2 flex items-center gap-2 bg-black/30 p-2 rounded-xl border border-white/10 min-w-[200px]">
-                <audio controls src={url} className="h-8 w-full" />
-            </div>
-        );
-
+        if (type === 'audio') return <div className="mt-2 flex items-center gap-2 bg-black/30 p-2 rounded-xl border border-white/10 min-w-[200px]"><audio controls src={url} className="h-8 w-full" /></div>;
         return <a href={url} target="_blank" className="flex items-center gap-2 mt-2 bg-black/20 p-2 rounded border border-white/10"><FileIcon size={14} /> <span className="text-xs underline">{name}</span></a>;
     };
 
@@ -360,11 +378,21 @@ const GenericChat = ({
                                             </div>
 
                                             <div className="flex flex-col max-w-full">
+                                                {/* 🔥 RANK & TITLE DISPLAY */}
+                                                {!isMe && !isSequence && (
+                                                    <div className="flex items-center gap-2 mb-0.5 ml-0.5">
+                                                        <span className="text-[10px] font-bold text-gray-400">{msg.senderName}</span>
+                                                        <span className={`text-[8px] px-1.5 rounded border ${getRank(msg.senderLevel || 1).border} ${getRank(msg.senderLevel || 1).color} bg-black/40`}>
+                                                            {getRank(msg.senderLevel || 1).name}
+                                                        </span>
+                                                        {msg.senderTitle && <span className="text-[8px] text-yellow-500 italic">[{msg.senderTitle}]</span>}
+                                                    </div>
+                                                )}
+
                                                 {msg.replyTo && <div onClick={() => scrollToMessage(msg.replyTo.id)} className={`mb-1 cursor-pointer flex items-center gap-2 px-3 py-1 rounded-lg text-[10px] bg-white/5 border border-white/5 w-fit max-w-full ${isMe ? 'self-end' : 'self-start'}`}><div className="w-0.5 h-3 bg-blue-500 rounded-full" /><span className="font-bold text-gray-400">{msg.replyTo.sender}:</span><span className="text-gray-500 truncate max-w-[150px]">{msg.replyTo.text}</span></div>}
 
                                                 {msg.type === 'poll' ? renderPoll(msg) : (
                                                     <div className={`relative px-4 py-2 text-sm shadow-sm border group/bubble ${isMe ? 'bg-blue-600 text-white border-blue-500 rounded-2xl rounded-tr-sm' : 'bg-[#1e1e21] border-white/5 text-gray-200 rounded-2xl rounded-tl-sm'}`}>
-                                                        {!isMe && !isSequence && <div className="text-[10px] font-bold text-gray-500 mb-0.5 ml-0.5">{msg.senderName}</div>}
                                                         {msg.isForwarded && <div className="text-[9px] text-gray-400 italic mb-1 flex items-center gap-1"><Share size={8} /> Forwarded</div>}
 
                                                         {editingId === msg.id ? (
@@ -430,7 +458,7 @@ const GenericChat = ({
                 )}
             </form>
 
-            {/* 📊 POLL MODAL (PORTAL) */}
+            {/* 📊 POLL MODAL */}
             {isPollModalOpen && createPortal(
                 <div className="fixed inset-0 z-[9999] bg-black/80 flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in">
                     <div className="bg-[#151518] w-full max-w-sm rounded-2xl border border-white/10 p-5 shadow-2xl relative">
@@ -438,7 +466,6 @@ const GenericChat = ({
                         <div className="space-y-3">
                             <div><label className="text-[10px] uppercase font-bold text-gray-500">Question</label><input autoFocus className="w-full bg-[#0a0a0a] border border-white/10 p-2 rounded-lg text-sm text-white outline-none focus:border-blue-500 mt-1" value={pollQuestion} onChange={e => setPollQuestion(e.target.value)} placeholder="Ask something..." /></div>
 
-                            {/* 🔥 CUSTOM POLL DURATION INPUT */}
                             <div>
                                 <label className="text-[10px] uppercase font-bold text-gray-500 flex items-center gap-2"><Clock size={10} /> Duration (Hours)</label>
                                 <input
@@ -463,7 +490,7 @@ const GenericChat = ({
                 </div>, document.body
             )}
 
-            {/* FORWARD MODAL (PORTAL) */}
+            {/* FORWARD MODAL */}
             {isForwarding && createPortal(
                 <div className="fixed inset-0 z-[9999] bg-black/80 flex items-center justify-center p-4 backdrop-blur-sm">
                     <div className="bg-[#151518] w-full max-w-sm rounded-2xl border border-white/10 p-4 shadow-2xl relative animate-fade-in">

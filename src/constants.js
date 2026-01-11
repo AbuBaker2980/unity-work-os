@@ -1,5 +1,5 @@
 // Central place for App Versioning
-export const APP_VERSION = "1.0.4";
+export const APP_VERSION = "1.0.5";
 
 // GitHub Config
 const GITHUB_USER = "AbuBaker2980";

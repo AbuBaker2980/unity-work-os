@@ -11,6 +11,7 @@ import toast from 'react-hot-toast';
 import { collection, query, where, getDocs } from "firebase/firestore";
 import { db } from "../firebase/config";
 
+// Removed checkForNewBadges from props
 const ProjectVault = ({ project, folders, onUpdate, onClose, userRole, userName, user, logActivity, hasUnreadDiscussion, onMarkDiscussionRead }) => {
     // --- ROLE CHECKS ---
     const isTL = ['TL', 'Team Lead', 'Manager'].includes(userRole);
@@ -186,6 +187,8 @@ const ProjectVault = ({ project, folders, onUpdate, onClose, userRole, userName,
         modifiedSectionsRef.current.clear();
 
         await onUpdate(project.id, updatedData);
+
+        // --- ACHIEVEMENT CHECK REMOVED HERE ---
 
         if (logActivity) {
             const logMsg = actionType === 'NEW_RELEASE'

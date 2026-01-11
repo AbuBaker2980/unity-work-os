@@ -1,7 +1,7 @@
 ﻿import React, { useState, useEffect } from 'react';
 import { HashRouter, Routes, Route, Link } from 'react-router-dom';
 import { signOut, onAuthStateChanged } from 'firebase/auth';
-import { doc, getDoc, collection, getDocs, query, where, onSnapshot, orderBy, limit, addDoc, updateDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, getDocs, collection, query, where, onSnapshot, orderBy, limit, addDoc, updateDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
 import { toDateObj } from "./utils/dateUtils";
 import {
     Layout, Box, Briefcase, CheckSquare, Clipboard, Users, MessageSquare, LogOut,
@@ -9,14 +9,9 @@ import {
     Settings, CheckCircle, XCircle, Command, Bell, Monitor, Menu, X, Layers, HardDrive, Lock
 } from 'lucide-react';
 import { Toaster } from 'react-hot-toast';
-
 import { auth, db } from "./firebase/config";
 import { APP_VERSION, DOWNLOAD_LINK } from "./constants";
-
-// Context
 import { DataProvider, useData } from "./contexts/DataContext";
-
-// Views
 import AuthView from "./views/AuthView";
 import OnboardingView from "./views/OnboardingView";
 import DashboardView from "./views/DashboardView";
@@ -28,12 +23,12 @@ import ArchivesView from "./views/ArchivesView";
 import DocsView from './views/DocsView';
 import ProfileModal from "./components/ProfileModal";
 import CommandPalette from "./components/CommandPalette";
+import { getRank, calculateLevelFromXP } from "./utils/gamificationUtils"; // Badges removed
 
 const APP_ID = "unity-work-os";
 const getCollectionRef = (name) => collection(db, 'artifacts', APP_ID, 'public', 'data', name);
 const STORAGE_KEYS = { LAST_READ_CHAT: "workos_last_read_chat" };
 
-// --- SIDEBAR BUTTON ---
 const SidebarBtn = ({ icon: Icon, label, active, onClick, isOpen, locked, alert }) => (
     <button onClick={locked ? undefined : onClick} className={`w-full flex items-center px-4 py-3 mb-1 rounded-xl transition-all duration-300 group outline-none relative overflow-hidden ${active ? 'text-white bg-gradient-to-r from-blue-600/20 to-transparent border-l-2 border-blue-500 shadow-[0_0_15px_rgba(37,99,235,0.2)]' : locked ? 'text-gray-600 cursor-not-allowed opacity-40 bg-transparent' : 'text-gray-500 hover:bg-white/5 hover:text-gray-300'}`} title={locked ? "Access Restricted" : label}>
         <div className="relative z-10 flex items-center w-full">
@@ -44,32 +39,23 @@ const SidebarBtn = ({ icon: Icon, label, active, onClick, isOpen, locked, alert 
     </button>
 );
 
-// --- APP LAYOUT (Uses Context) ---
 const AppLayout = ({ user, handleLogout, onUpdateUser }) => {
-    // GET DATA FROM CONTEXT
     const { projects, folders, tasks, activities, inAppNotifications, clearNotifications, activityDate, setActivityDate, logActivity } = useData();
 
     const [view, setView] = useState('dashboard');
     const [teamTab, setTeamTab] = useState('roster');
     const [selectedProjectId, setSelectedProjectId] = useState(null);
     const [projectFilter, setProjectFilter] = useState('All');
-
-    // UI States
     const [isSidebarOpen, setSidebarOpen] = useState(true);
     const [isMobileMenuOpen, setMobileMenuOpen] = useState(false);
-
-    // Chat Notification States
-    const [unreadChat, setUnreadChat] = useState(false); // General Team Chat
-    const [unreadDMIds, setUnreadDMIds] = useState(new Set()); // Set of User IDs who sent unread msgs
-
+    const [unreadChat, setUnreadChat] = useState(false);
+    const [unreadDMIds, setUnreadDMIds] = useState(new Set());
     const [unreadProjectIds, setUnreadProjectIds] = useState(new Set());
     const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
     const [showProfileModal, setShowProfileModal] = useState(false);
     const [isCommandPaletteOpen, setCommandPaletteOpen] = useState(false);
     const [isNotifOpen, setNotifOpen] = useState(false);
     const [isCreateFolderOpen, setCreateFolderOpen] = useState(false);
-
-    // Form States
     const [newFolderName, setNewFolderName] = useState("");
     const [newFolderUrl, setNewFolderUrl] = useState("");
     const [collapsedFolders, setCollapsedFolders] = useState({});
@@ -80,7 +66,11 @@ const AppLayout = ({ user, handleLogout, onUpdateUser }) => {
 
     const toggleFolder = (id) => setCollapsedFolders(prev => ({ ...prev, [id]: !prev[id] }));
 
-    // Global Key Bindings
+    // 🔥 GAMIFICATION CALCULATIONS (Kept)
+    const xpStats = calculateLevelFromXP(user.xp || 0);
+    const rank = getRank(user.level || 1);
+    const progressPercent = (xpStats.currentXP / xpStats.requiredXP) * 100;
+
     useEffect(() => {
         const handleKeyDown = (e) => { if ((e.ctrlKey || e.metaKey) && e.key === 'k') { e.preventDefault(); setCommandPaletteOpen(prev => !prev); } };
         document.addEventListener('keydown', handleKeyDown);
@@ -89,16 +79,12 @@ const AppLayout = ({ user, handleLogout, onUpdateUser }) => {
 
     useEffect(() => { const handleResize = () => setSidebarOpen(window.innerWidth >= 768); window.addEventListener('resize', handleResize); handleResize(); return () => window.removeEventListener('resize', handleResize); }, []);
 
-    // 1. Team Chat Listener (Global)
     useEffect(() => {
         if (!user?.teamId) return;
         const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'messages'), where("teamId", "==", user.teamId), orderBy('createdAt', 'desc'), limit(10));
-
-        // ADDED ERROR CALLBACK HERE
         const unsubscribe = onSnapshot(q, (snapshot) => {
             const lastRead = localStorage.getItem(STORAGE_KEYS.LAST_READ_CHAT) || new Date(0).toISOString();
             const hasNew = snapshot.docs.some(doc => toDateObj(doc.data().createdAt) > new Date(lastRead) && doc.data().senderId !== user.uid);
-
             if (view === 'team' && teamTab === 'chat' && !selectedProjectId) {
                 setUnreadChat(false);
                 localStorage.setItem(STORAGE_KEYS.LAST_READ_CHAT, new Date().toISOString());
@@ -106,68 +92,50 @@ const AppLayout = ({ user, handleLogout, onUpdateUser }) => {
                 setUnreadChat(hasNew);
             }
         }, (error) => {
-            // Ignore permission denied on logout
             if (error.code !== 'permission-denied') console.error("Chat listener error:", error);
         });
         return () => unsubscribe();
     }, [user.teamId, view, teamTab]);
 
-    // 2. Direct Message Listener (Global - for Sidebar Red Dot)
     useEffect(() => {
         if (!user?.teamId) return;
-
         const fetchMembersAndListen = async () => {
             const qUsers = query(collection(db, "users"), where("teamId", "==", user.teamId));
             const snapshot = await getDocs(qUsers);
             const members = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-
             const unsubscribers = [];
-
             members.forEach(member => {
                 if (member.id === user.uid) return;
-
                 const chatId = [user.uid, member.id].sort().join("_");
                 const msgsRef = collection(db, 'artifacts', APP_ID, 'public', 'data', 'direct_messages', chatId, 'messages');
                 const qMsg = query(msgsRef, orderBy('createdAt', 'desc'), limit(1));
-
-                // ADDED ERROR CALLBACK HERE
                 const unsub = onSnapshot(qMsg, (snap) => {
                     if (!snap.empty) {
                         const lastMsg = snap.docs[0].data();
                         const lastRead = localStorage.getItem(`dm_last_read_${member.id}`) || new Date(0).toISOString();
-
                         if (lastMsg.senderId !== user.uid && lastMsg.createdAt?.toDate().toISOString() > lastRead) {
                             setUnreadDMIds(prev => new Set(prev).add(member.id));
                         }
                     }
                 }, (error) => {
-                    // Ignore permission denied on logout
                     if (error.code !== 'permission-denied') console.warn("DM listener silent fail");
                 });
                 unsubscribers.push(unsub);
             });
             return unsubscribers;
         };
-
         let cleanups = [];
         fetchMembersAndListen().then(fns => { cleanups = fns; });
-
         return () => { cleanups.forEach(fn => fn && fn()); };
     }, [user.teamId, user.uid]);
 
-    // Action to clear DM notification for a specific user (Passed to TeamView)
     const handleMarkDMRead = (userId) => {
-        setUnreadDMIds(prev => {
-            const newSet = new Set(prev);
-            newSet.delete(userId);
-            return newSet;
-        });
+        setUnreadDMIds(prev => { const newSet = new Set(prev); newSet.delete(userId); return newSet; });
         localStorage.setItem(`dm_last_read_${userId}`, new Date().toISOString());
     };
 
     const handleNavigate = (newView, param = null) => {
-        setView(newView);
-        setMobileMenuOpen(false);
+        setView(newView); setMobileMenuOpen(false);
         if (newView === 'team') setTeamTab(param || 'roster');
         if (newView === 'projects' && param) setSelectedProjectId(param);
         if (newView === 'tasks') setView('tasks');
@@ -186,7 +154,6 @@ const AppLayout = ({ user, handleLogout, onUpdateUser }) => {
         return false;
     };
 
-    // --- ACTIONS ---
     const createFolder = async (e) => {
         e.preventDefault();
         if (!checkPermission('CREATE_CONTENT')) return alert("Access Denied.");
@@ -222,9 +189,7 @@ const AppLayout = ({ user, handleLogout, onUpdateUser }) => {
     const addTask = async (taskData) => addDoc(getCollectionRef('tasks'), { ...taskData, teamId: user.teamId });
     const updateTask = async (id, data) => updateDoc(doc(getCollectionRef('tasks'), id), data);
     const deleteTask = async (id) => { if (confirm("Delete task?")) deleteDoc(doc(getCollectionRef('tasks'), id)); };
-
     const handleActivityClick = (act) => { if (act.meta?.view) { setView(act.meta.view); if (act.meta.projectId) setSelectedProjectId(act.meta.projectId); } };
-
     const filteredProjects = projects.filter(p => {
         const matchesSearch = p.name.toLowerCase().includes(projectSearch.toLowerCase());
         const matchesTab = projectFilter === 'All' || p.platform === projectFilter || (projectFilter === 'PC' && p.platform === 'Windows');
@@ -258,7 +223,45 @@ const AppLayout = ({ user, handleLogout, onUpdateUser }) => {
             {isMobileMenuOpen && (<div className="fixed inset-0 bg-black/80 z-30 md:hidden backdrop-blur-sm animate-fade-in" onClick={() => setMobileMenuOpen(false)} />)}
 
             <div className={`fixed inset-y-0 left-0 z-40 bg-[#050505] border-r border-white/5 flex flex-col transition-transform duration-300 ease-in-out md:relative ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'} ${isSidebarOpen ? 'md:w-64' : 'md:w-20'} md:translate-x-0 w-64 shadow-[10px_0_30px_rgba(0,0,0,0.5)]`}>
-                <div className={`h-20 flex items-center px-5 border-b border-white/5 ${isSidebarOpen ? 'justify-between' : 'justify-center'}`}><div className="flex items-center gap-3"><div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center shadow-[0_0_20px_rgba(37,99,235,0.5)] border border-white/10 flex-shrink-0 animate-pulse"><Box className="w-6 h-6 text-white" /></div>{(isSidebarOpen || isMobileMenuOpen) && <span className="font-bold text-white tracking-widest text-lg font-mono">UNITY CORE</span>}</div><button className="md:hidden text-gray-400" onClick={() => setMobileMenuOpen(false)}><X size={20} /></button></div>
+
+                {/* SIDEBAR HEADER WITH RANK (Kept) */}
+                <div className={`flex flex-col px-5 py-6 border-b border-white/5 transition-all duration-300 ${isSidebarOpen ? '' : 'items-center'}`}>
+                    <div className="flex items-center gap-3 mb-4">
+                        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center shadow-[0_0_20px_rgba(37,99,235,0.5)] border border-white/10 flex-shrink-0 animate-pulse"><Box className="w-6 h-6 text-white" /></div>
+                        {(isSidebarOpen || isMobileMenuOpen) && <span className="font-bold text-white tracking-widest text-lg font-mono">UNITY CORE</span>}
+                    </div>
+
+                    {/* Rank Info (Kept) */}
+                    {(isSidebarOpen || isMobileMenuOpen) && (
+                        <div className="bg-[#151518] p-3 rounded-xl border border-white/5">
+                            <div className="flex justify-between items-center mb-1">
+                                <span className={`text-xs font-bold ${rank.color}`}>{rank.name}</span>
+                                <span className="text-[10px] text-gray-500">Lvl {user.level || 1}</span>
+                            </div>
+
+                            {/* PROGRESS BAR */}
+                            <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden mb-2">
+                                <div
+                                    className="h-full transition-all duration-1000 rounded-full"
+                                    style={{
+                                        width: `${Math.min(100, Math.max(0, progressPercent || 0))}%`,
+                                        backgroundColor: rank.name === 'Bronze' ? '#f97316' :
+                                            rank.name === 'Silver' ? '#94a3b8' :
+                                                rank.name === 'Gold' ? '#eab308' : '#3b82f6'
+                                    }}
+                                ></div>
+                            </div>
+
+                            {/* Active Title (Kept if it exists in DB) */}
+                            {user.activeTitle && (
+                                <div className="text-[10px] text-yellow-500 text-center font-mono border border-yellow-500/20 bg-yellow-500/5 rounded py-0.5">
+                                    « {user.activeTitle} »
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
+
                 <div className="px-4 mb-4 mt-6"><button onClick={() => { setCommandPaletteOpen(true); setMobileMenuOpen(false); }} className={`w-full flex items-center justify-between bg-white/5 border border-white/5 p-3 rounded-xl text-gray-400 hover:text-white hover:border-blue-500/50 hover:bg-white/10 transition-all group ${!isSidebarOpen && 'justify-center'} shadow-inner`} title="Quick Search (Ctrl + K)"><div className="flex items-center gap-3"><Search size={18} className="group-hover:text-blue-400 transition-colors" />{(isSidebarOpen || isMobileMenuOpen) && <span className="text-xs font-medium tracking-wide">Quick Search...</span>}</div>{isSidebarOpen && !isMobileMenuOpen && (<div className="flex gap-1 opacity-50"><span className="text-[9px] font-mono bg-black/50 px-1.5 py-0.5 rounded border border-white/10">Ctrl</span><span className="text-[9px] font-mono bg-black/50 px-1.5 py-0.5 rounded border border-white/10">K</span></div>)}</button></div>
 
                 <nav className="flex-1 py-2 px-3 space-y-2 overflow-y-auto">
@@ -266,19 +269,16 @@ const AppLayout = ({ user, handleLogout, onUpdateUser }) => {
                     <SidebarBtn icon={CheckSquare} label="Daily Tasks" active={view === 'tasks'} onClick={() => handleNavigate('tasks')} isOpen={isSidebarOpen || isMobileMenuOpen} />
                     {(checkPermission('VIEW_PROJECTS') || ['Designer', '3D Modeler'].includes(user.role)) && (<SidebarBtn icon={Briefcase} label="Projects" active={view === 'projects'} onClick={() => handleNavigate('projects')} isOpen={isSidebarOpen || isMobileMenuOpen} locked={!checkPermission('VIEW_PROJECTS')} alert={unreadProjectIds.size > 0} />)}
 
-                    {/* Team Roster Button */}
                     <SidebarBtn icon={Users} label="Team" active={(view === 'team' && teamTab === 'roster')} onClick={() => handleNavigate('team', 'roster')} isOpen={isSidebarOpen || isMobileMenuOpen} />
 
-                    {/* RESTORED TEAM CHAT BUTTON with RED DOT */}
                     <button onClick={() => handleNavigate('team', 'chat')} className={`relative w-full flex items-center px-4 py-3 mb-1 rounded-xl transition-all duration-300 group outline-none overflow-hidden ${(view === 'team' && teamTab === 'chat') ? 'text-white' : 'text-gray-500 hover:text-gray-200'}`}>
                         {(view === 'team' && teamTab === 'chat') && (<><div className="absolute left-0 top-0 bottom-0 w-1 bg-purple-500 shadow-[0_0_15px_rgba(168,85,247,0.8)] rounded-r-full" /><div className="absolute inset-0 bg-gradient-to-r from-purple-600/20 to-transparent" /></>)}
                         <div className="relative flex items-center z-10">
                             <div className="relative">
                                 <MessageSquare size={20} className={`transition-all duration-300 ${(view === 'team' && teamTab === 'chat') ? "text-purple-400 scale-110 drop-shadow-[0_0_8px_rgba(168,85,247,0.8)]" : "group-hover:text-white"}`} />
-                                {/* Red Dot Logic: General Chat OR Any Unread DM */}
                                 {(unreadChat || unreadDMIds.size > 0) && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-red-500 border-2 border-[#0f0f12] rounded-full animate-pulse shadow-[0_0_10px_red]"></span>}
                             </div>
-                            <span className={`ml-4 font-medium text-sm tracking-wide transition-all duration-300 whitespace-nowrap ${(isSidebarOpen || isMobileMenuOpen) ? "opacity-100 translate-x-0" : "opacity-0 -translate-x-4 w-0 overflow-hidden"}`}>Chats</span>
+                            <span className={`ml-4 font-medium text-sm tracking-wide transition-all duration-300 whitespace-nowrap ${(isSidebarOpen || isMobileMenuOpen) ? "opacity-100 translate-x-0" : "opacity-0 -translate-x-4 w-0 overflow-hidden"}`}>Team Chat</span>
                         </div>
                     </button>
 
@@ -286,9 +286,7 @@ const AppLayout = ({ user, handleLogout, onUpdateUser }) => {
                     <SidebarBtn icon={Clipboard} label="Reports" active={view === 'reports'} onClick={() => handleNavigate('reports')} isOpen={isSidebarOpen || isMobileMenuOpen} />
                 </nav>
 
-                {/* --- SIDEBAR FOOTER WITH NOTIFICATIONS & PROFILE --- */}
                 <div className="p-4 bg-[#050505] space-y-2">
-                    {/* ... (Rest of sidebar remains same) ... */}
                     <div className="relative group">
                         <button onClick={() => setNotifOpen(!isNotifOpen)} className={`w-full flex items-center ${isSidebarOpen ? 'justify-between px-4' : 'justify-center'} py-2.5 rounded-xl bg-white/5 border border-white/5 hover:bg-white/10 hover:border-white/10 transition-all text-gray-400 hover:text-white`}>
                             <div className="flex items-center gap-3">
@@ -300,6 +298,7 @@ const AppLayout = ({ user, handleLogout, onUpdateUser }) => {
                             </div>
                             {isSidebarOpen && inAppNotifications.length > 0 && <span className="bg-red-500/20 text-red-400 text-[9px] px-1.5 py-0.5 rounded font-bold">{inAppNotifications.length}</span>}
                         </button>
+
                         {isNotifOpen && (
                             <>
                                 <div className="fixed inset-0 z-40" onClick={() => setNotifOpen(false)} />
@@ -337,11 +336,8 @@ const AppLayout = ({ user, handleLogout, onUpdateUser }) => {
                 </div>
             </div>
 
-            {/* MAIN CONTENT AREA */}
             <div className="flex-1 flex flex-col min-w-0 bg-[#0a0a0a] relative h-screen overflow-hidden">
-                {/* Mobile Header */}
                 <div className="md:hidden h-16 bg-[#0f0f12] border-b border-white/5 flex items-center justify-between px-4 shrink-0 z-20"><button onClick={() => setMobileMenuOpen(true)} className="text-gray-400 hover:text-white p-2"><Menu size={24} /></button><span className="font-bold text-white tracking-wide">UNITY CORE</span><button onClick={() => setNotifOpen(!isNotifOpen)} className="text-gray-400 hover:text-white p-2 relative"><Bell size={20} />{inAppNotifications.length > 0 && <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border border-[#0f0f12]" />}</button></div>
-
                 <div className="flex-1 overflow-y-auto overflow-x-hidden relative custom-scrollbar">
                     <div className="absolute top-0 left-0 w-full h-96 bg-gradient-to-b from-blue-900/10 to-transparent pointer-events-none" />
                     <div className="relative z-10 h-full flex flex-col">
@@ -368,9 +364,7 @@ const AppLayout = ({ user, handleLogout, onUpdateUser }) => {
                                 </div>
                             </div>
                         )}
-                        {/* PASS HANDLE MARK DM READ TO TEAMVIEW */}
                         {view === 'team' && <TeamView currentUser={user} defaultTab={teamTab} onMarkDMRead={handleMarkDMRead} />}
-
                         {view === 'tasks' && <TasksView projects={projects} tasks={tasks} onAddTask={addTask} onUpdateTask={updateTask} onDeleteTask={deleteTask} logActivity={logActivity} user={user} />}
                         {view === 'archives' && <ArchivesView user={user} />}
                         {view === 'reports' && <ReportsView tasks={tasks} projects={projects} />}
@@ -381,7 +375,6 @@ const AppLayout = ({ user, handleLogout, onUpdateUser }) => {
     );
 };
 
-// ... (Rest of MainApp and exports remain unchanged) ...
 const MainApp = () => {
     const [user, setUser] = useState(null);
     const [authLoading, setAuthLoading] = useState(true);
@@ -390,47 +383,56 @@ const MainApp = () => {
         const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
             if (firebaseUser) {
                 try {
-                    const userDoc = await getDoc(doc(db, "users", firebaseUser.uid));
-                    if (userDoc.exists()) {
-                        const userData = userDoc.data();
-                        setUser({ uid: firebaseUser.uid, email: firebaseUser.email, role: userData.role || 'Developer', name: userData.name, tagline: userData.tagline, avatar: userData.avatar, teamId: userData.teamId });
-                    } else { setUser(null); }
+                    const userRef = doc(db, "users", firebaseUser.uid);
+                    onSnapshot(userRef, (docSnap) => {
+                        if (docSnap.exists()) {
+                            const userData = docSnap.data();
+                            setUser({
+                                uid: firebaseUser.uid,
+                                email: firebaseUser.email,
+                                role: userData.role || 'Developer',
+                                name: userData.name,
+                                tagline: userData.tagline,
+                                avatar: userData.avatar,
+                                teamId: userData.teamId,
+                                xp: userData.xp || 0,
+                                level: userData.level || 1,
+                                activeTitle: userData.activeTitle || "",
+                                // Badges field removed if no longer needed, or keep for future
+                            });
+                        }
+                    });
                 } catch (error) { console.error(error); setUser(null); }
             } else { setUser(null); }
             setAuthLoading(false);
         });
         return () => unsubscribe();
     }, []);
-    // Add this inside MainApp component, just after fetching the user
+
     useEffect(() => {
         if (!user?.uid) return;
-
-        // 1. Mark Online immediately
         const userRef = doc(db, "users", user.uid);
         updateDoc(userRef, { isOnline: true });
 
-        // 2. Mark Offline when closing window/tab
         const handleDisconnect = () => {
-            // Beacon API is reliable for tab closing updates
-            const data = new Blob([JSON.stringify({ isOnline: false })], { type: 'application/json' });
-            // Note: Firestore REST API endpoint would be needed for true Beacon, 
-            // but for now, we try standard synchronous update if possible or rely on timeouts.
-            // Simple fallback for React apps:
-            updateDoc(userRef, { isOnline: false });
+            updateDoc(userRef, { isOnline: false }).catch(() => { });
         };
-
         window.addEventListener("beforeunload", handleDisconnect);
-
         return () => {
-            // 3. Mark Offline when component unmounts (logout)
-            updateDoc(userRef, { isOnline: false }).catch((error) => {
-
-            });
-
+            updateDoc(userRef, { isOnline: false }).catch(() => { });
             window.removeEventListener("beforeunload", handleDisconnect);
         };
     }, [user?.uid]);
-    const handleLogout = async () => { await signOut(auth); setUser(null); };
+
+    const handleLogout = async () => {
+        try {
+            await signOut(auth);
+            setUser(null);
+            window.location.reload();
+        } catch (error) {
+            console.error("Logout Error:", error);
+        }
+    };
 
     if (authLoading) return <div className="h-screen bg-[#0a0a0a] flex items-center justify-center text-gray-500 font-mono text-sm tracking-wider">INITIALIZING SYSTEM...</div>;
 
