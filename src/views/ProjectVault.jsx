@@ -332,21 +332,20 @@ const ProjectVault = ({ project, folders, onUpdate, onClose, userRole, userName,
                     { id: 'keystore', icon: Key, label: 'Keystore' }
                 ].map(tab => {
                     let isLocked = false;
+
+                    // --- 1. DISCUSSION LOCK ---
                     if (tab.id === 'discussion') {
                         if (!canAccessDiscussion) isLocked = true;
-                    } else if (tab.id === 'store') {
-                        if (isCreative) isLocked = true;
-                    } else {
-                        // Default locking for QA & Creative roles
-                        if (isQA || isCreative) isLocked = true;
-
-                        // Override: Ads are viewable (but not editable)
-                        if (tab.id === 'ads') isLocked = false;
                     }
-
-                    // Special Override: QA/Creative can VIEW but not edit ads
-                    if ((isQA || isCreative) && tab.id === 'ads') {
-                        isLocked = false;
+                    // --- 2. QA SPECIFIC LOCK ---
+                    else if (isQA) {
+                        // QA can only access 'store' (and 'discussion' checked above)
+                        if (tab.id !== 'store') isLocked = true;
+                    }
+                    // --- 3. CREATIVE SPECIFIC LOCK ---
+                    else if (isCreative) {
+                        // Creative can ONLY access 'discussion' (checked above), everything else locked
+                        isLocked = true;
                     }
 
                     return (
@@ -540,7 +539,6 @@ const ProjectVault = ({ project, folders, onUpdate, onClose, userRole, userName,
                         </div>
                     )}
 
-                    {/* EXISTING ADS TAB */}
                     {activeTab === 'ads' && (
                         <div className="animate-fade-in">
                             <div className="flex justify-between items-center mb-6"><h3 className="text-lg font-bold text-white">Ad Networks</h3><div className="flex gap-2"><button onClick={copyAllIds} className="bg-white/5 hover:bg-white/10 text-gray-300 border border-white/5 px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2"><Copy size={16} /> Copy All</button>{!isQA && !isCreative && <button onClick={addNetwork} className="bg-blue-600/20 text-blue-400 border border-blue-500/30 px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 hover:bg-blue-600/30"><Plus size={16} /> Add Network</button>}</div></div>
